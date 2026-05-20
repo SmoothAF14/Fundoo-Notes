@@ -1,0 +1,62 @@
+# Python
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Virtual environments
+venv/
+ENV/
+.venv/
+env/
+env.bak/
+
+# Django
+*.log
+*.pot
+local_settings.py
+db.sqlite3
+media/
+staticfiles/
+celerybeat-schedule
+
+# VS Code
+.vscode/
+
+# IDEs
+.idea/
+*.sublime-workspace
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/build/
+build/
+
+# Environment variables
+.env
+.env.*.local
+frontend/.env
+
+# Testing
+.pytest_cache/
+coverage/
+htmlcov/
+
+# Mypy / cache
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

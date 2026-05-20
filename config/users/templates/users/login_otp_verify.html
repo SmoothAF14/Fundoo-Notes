@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Verify Login OTP • Fundoo Notes{% endblock %}
+
+{% block content %}
+    <section class="max-w-md mx-auto">
+        <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+            <h1 class="text-2xl font-semibold">Login OTP Verification</h1>
+            <p class="text-sm text-slate-600 mt-1">
+                OTP valid for:
+                <strong>
+                    <span id="otp-timer" class="font-semibold text-slate-900" data-seconds="{{ otp_expires_in_seconds|default:0 }}">--:--</span>
+                </strong>
+            </p>
+
+            <form method="POST" class="mt-6 space-y-4">
+                {% csrf_token %}
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700">OTP</label>
+                    <input
+                        class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                        type="text"
+                        name="otp"
+                        placeholder="Enter OTP"
+                        required
+                    />
+                </div>
+
+                <button
+                    type="submit"
+                    class="w-full rounded-full px-5 py-2 font-semibold bg-amber-200 hover:bg-amber-300 transition border border-amber-300"
+                >Verify</button>
+
+                <div class="text-sm text-slate-600">
+                    <a class="hover:underline" href="{% url 'login' %}">Back</a>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <script>
+        (function () {
+            var el = document.getElementById('otp-timer');
+            if (!el) return;
+
+            var seconds = parseInt(el.getAttribute('data-seconds') || '0', 10);
+            if (isNaN(seconds)) seconds = 0;
+
+            var button = document.querySelector('form button[type="submit"]');
+
+            function render() {
+                var s = Math.max(0, seconds);
+                var m = Math.floor(s / 60);
+                var r = s % 60;
+                el.textContent = String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0');
+                if (button) button.disabled = s <= 0;
+            }
+
+            render();
+
+            var timer = setInterval(function () {
+                seconds -= 1;
+                render();
+                if (seconds <= 0) clearInterval(timer);
+            }, 1000);
+        })();
+    </script>
+{% endblock %}

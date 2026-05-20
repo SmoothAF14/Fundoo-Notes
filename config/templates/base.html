@@ -1,0 +1,128 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Fundoo Notes{% endblock %}</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+      /* Keep-like layout helpers */
+      .keep-masonry {
+        column-gap: 1rem;
+      }
+      .keep-note {
+        break-inside: avoid;
+        -webkit-column-break-inside: avoid;
+        page-break-inside: avoid;
+        margin-bottom: 1rem;
+      }
+    </style>
+  </head>
+
+  <body class="bg-slate-100 text-slate-900 min-h-screen">
+    <header class="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200">
+      <div class="px-4 py-3">
+        <div class="mx-auto max-w-6xl flex items-center justify-between gap-3">
+          <a href="/" class="group flex items-center gap-3">
+            <div class="h-10 w-10 rounded-xl bg-amber-200 flex items-center justify-center border border-amber-300">
+              <span class="text-sm font-semibold text-slate-900">FN</span>
+            </div>
+            <div class="leading-tight">
+              <div class="text-lg font-semibold">Fundoo Notes</div>
+              <div class="text-xs text-slate-500">keep-style notes</div>
+            </div>
+          </a>
+
+          {% if request.user.is_authenticated %}
+            <nav class="flex md:hidden items-center gap-2 text-sm">
+              <a
+                href="{% url 'dashboard' %}"
+                class="rounded-full px-4 py-2 bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
+              >Notes</a>
+              <a
+                href="{% url 'labels' %}"
+                class="rounded-full px-4 py-2 bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
+              >Labels</a>
+              <a
+                href="{% url 'create_note' %}"
+                class="rounded-full px-4 py-2 font-semibold bg-amber-200 hover:bg-amber-300 transition border border-amber-300"
+              >New</a>
+              <a
+                href="{% url 'logout' %}"
+                class="rounded-full px-4 py-2 bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
+              >Logout</a>
+            </nav>
+          {% else %}
+            <nav class="flex items-center gap-2 text-sm">
+              <a
+                href="{% url 'login' %}"
+                class="rounded-full px-4 py-2 bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
+              >Login</a>
+              <a
+                href="{% url 'register' %}"
+                class="rounded-full px-4 py-2 font-semibold bg-amber-200 hover:bg-amber-300 transition border border-amber-300"
+              >Register</a>
+            </nav>
+          {% endif %}
+        </div>
+      </div>
+    </header>
+
+    <main class="px-4 pb-10">
+      <div class="mx-auto max-w-6xl pt-6">
+        <div class="flex items-start gap-6">
+          {% if request.user.is_authenticated %}
+            {% with current=request.resolver_match.url_name %}
+              <aside class="hidden md:block w-56 shrink-0">
+                <nav class="space-y-1">
+                  <a
+                    href="{% url 'dashboard' %}"
+                    class="block rounded-full px-4 py-2 border transition {% if current == 'dashboard' %}bg-amber-100 border-amber-200 text-slate-900{% else %}bg-transparent border-transparent hover:bg-slate-200/60 text-slate-800{% endif %}"
+                  >Notes</a>
+                  <a
+                    href="{% url 'labels' %}"
+                    class="block rounded-full px-4 py-2 border transition {% if current == 'labels' %}bg-amber-100 border-amber-200 text-slate-900{% else %}bg-transparent border-transparent hover:bg-slate-200/60 text-slate-800{% endif %}"
+                  >Labels</a>
+
+                  <div class="pt-2"></div>
+
+                  <a
+                    href="{% url 'create_note' %}"
+                    class="block rounded-full px-4 py-2 font-semibold bg-amber-200 hover:bg-amber-300 transition border border-amber-300"
+                  >New Note</a>
+                  <a
+                    href="{% url 'logout' %}"
+                    class="block rounded-full px-4 py-2 bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
+                  >Logout</a>
+                </nav>
+              </aside>
+            {% endwith %}
+          {% endif %}
+
+          <div class="min-w-0 flex-1">
+            {% if messages %}
+              <div class="space-y-2 mb-6">
+                {% for message in messages %}
+                  <div class="rounded-xl px-4 py-3 text-sm bg-white border border-slate-200 shadow-sm">
+                    <span class="font-semibold text-slate-700">{{ message.tags|title }}:</span>
+                    <span class="text-slate-800">{{ message }}</span>
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+
+            {% block content %}{% endblock %}
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="px-4 py-8 text-center text-xs text-slate-500">
+      <div class="mx-auto max-w-6xl">Built with Django • Styled with Tailwind CDN</div>
+    </footer>
+  </body>
+</html>

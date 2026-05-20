@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Update Note{% endblock %}
+
+{% block content %}
+  <section class="max-w-2xl">
+    <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <h1 class="text-xl font-semibold">Update Note</h1>
+
+      <form method="POST" class="mt-5 space-y-4">
+        {% csrf_token %}
+
+        <div>
+          <label class="block text-sm font-medium text-slate-700">Title</label>
+          <input
+            class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
+            type="text"
+            name="title"
+            value="{{ note.title }}"
+            required
+          />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-700">Labels</label>
+          <select
+            name="labels"
+            multiple
+            class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-300"
+          >
+            {% for label in labels %}
+              {% with lid=label.label_id|stringformat:"s" %}
+                <option value="{{ label.label_id }}" {% if lid in selected_label_ids %}selected{% endif %}>
+                  {{ label.title }}
+                </option>
+              {% endwith %}
+            {% endfor %}
+          </select>
+          <p class="mt-1 text-xs text-slate-500">Hold Ctrl to select multiple.</p>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-700">Content</label>
+          <textarea
+            class="mt-1 w-full min-h-40 rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
+            name="content"
+            required
+          >{{ note.content }}</textarea>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <a
+            href="{% url 'dashboard' %}"
+            class="text-sm text-slate-600 hover:text-slate-900"
+          >Back</a>
+
+          <button
+            type="submit"
+            class="rounded-full px-5 py-2 font-semibold bg-amber-200 hover:bg-amber-300 transition border border-amber-300"
+          >Update</button>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

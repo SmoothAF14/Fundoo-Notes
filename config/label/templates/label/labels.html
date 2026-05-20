@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Labels • Fundoo Notes{% endblock %}
+
+{% block content %}
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold">Labels</h1>
+      <p class="text-sm text-slate-600 mt-1">Create labels and attach them to notes.</p>
+    </div>
+  </div>
+
+  <section class="mt-6 grid gap-4 md:grid-cols-2">
+    <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <h2 class="text-lg font-semibold">Create label</h2>
+      <form method="POST" class="mt-4 flex gap-2">
+        {% csrf_token %}
+        <input
+          class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
+          type="text"
+          name="title"
+          placeholder="Label title"
+          required
+        />
+        <button class="rounded-full px-5 py-2 font-semibold bg-amber-200 hover:bg-amber-300 transition border border-amber-300" type="submit">Add</button>
+      </form>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <h2 class="text-lg font-semibold">All labels</h2>
+
+      {% if labels %}
+        <div class="mt-4 flex flex-wrap gap-2">
+          {% for label in labels %}
+            <span class="rounded-full px-3 py-1.5 text-sm bg-slate-100 border border-slate-200 text-slate-700">
+              {{ label.title }}
+            </span>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="mt-3 text-sm text-slate-600">No labels yet.</p>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

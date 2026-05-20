@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard • Fundoo Notes{% endblock %}
+
+{% block content %}
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold">Your Notes</h1>
+      <p class="text-sm text-slate-600 mt-1">Create, edit, and manage your notes.</p>
+    </div>
+
+    <a
+      href="{% url 'create_note' %}"
+      class="rounded-full px-4 py-2 font-semibold whitespace-nowrap bg-amber-200 hover:bg-amber-300 transition border border-amber-300"
+    >+ Create</a>
+  </div>
+
+  {% if notes %}
+    <div class="mt-6 keep-masonry columns-1 sm:columns-2 lg:columns-3">
+      {% for note in notes %}
+        <article class="keep-note bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition">
+          <header class="flex items-start justify-between gap-3">
+            <h3 class="text-base font-semibold leading-5 break-words">{{ note.title }}</h3>
+            <div class="flex gap-2 shrink-0">
+              <a
+                href="{% url 'update_note' note.id %}"
+                class="rounded-full px-3 py-1 text-xs bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
+              >Edit</a>
+              <form method="POST" action="{% url 'delete_note' note.id %}">
+                {% csrf_token %}
+                <button
+                  type="submit"
+                  class="rounded-full px-3 py-1 text-xs bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
+                >Delete</button>
+              </form>
+            </div>
+          </header>
+
+          {% if note.labels.all %}
+            <div class="mt-3 flex flex-wrap gap-2">
+              {% for label in note.labels.all %}
+                <span class="rounded-full px-3 py-1 text-xs bg-slate-100 border border-slate-200 text-slate-700">
+                  {{ label.title }}
+                </span>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <p class="mt-3 text-sm text-slate-700 whitespace-pre-wrap break-words">{{ note.content }}</p>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <section class="mt-6 bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <h2 class="text-lg font-semibold">No notes yet</h2>
+      <p class="text-sm text-slate-600 mt-1">Create your first note to see it here.</p>
+      <a href="{% url 'create_note' %}" class="inline-block mt-4 rounded-full px-4 py-2 font-semibold bg-amber-200 hover:bg-amber-300 transition border border-amber-300">Create a note</a>
+    </section>
+  {% endif %}
+{% endblock %}
