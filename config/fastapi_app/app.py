@@ -1,4 +1,3 @@
-"""Main FastAPI application."""
 import os
 import sys
 import django
@@ -21,7 +20,7 @@ from fastapi_app.routers import collaborators
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage application lifespan."""
+    
     # Startup
     print("FastAPI app starting up...")
     yield
@@ -44,7 +43,7 @@ logger = logging.getLogger("fastapi_app")
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure as needed for your frontend
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -58,7 +57,7 @@ app.include_router(collaborators.router)
 # Exception handlers
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
-    """Handle validation errors."""
+    
     return JSONResponse(
         status_code=422,
         content={"detail": str(exc)},
@@ -67,7 +66,7 @@ async def validation_exception_handler(request, exc):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
-    """Catch-all exception handler that logs tracebacks for debugging."""
+    
     # Log full traceback to the server logs for diagnosis
     logger.exception("Unhandled exception in request: %s", exc)
     tb = traceback.format_exc()
@@ -81,13 +80,13 @@ async def general_exception_handler(request, exc):
 
 @app.get("/", tags=["Health"])
 async def root():
-    """Health check endpoint."""
+    
     return {"message": "FundooNotes FastAPI is running"}
 
 
 @app.get("/health", tags=["Health"])
 async def health():
-    """Health check endpoint."""
+    
     return {"status": "healthy"}
 
 

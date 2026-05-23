@@ -7,25 +7,21 @@ from fastapi_app.schemas.common import UserSummary, Permission, Status
 
 
 class CollaboratorInviteRequest(BaseModel):
-    """Request schema for inviting a collaborator."""
     email: EmailStr
     permission: Permission
 
 
 class CollaboratorPermissionUpdate(BaseModel):
-    """Request schema for updating collaborator permission."""
-    permission: Permission
+   permission: Permission
 
 
 class NoteOwner(BaseModel):
-    """Note owner information."""
     id: str
     username: str
     email: Optional[str] = ""
 
 
 class NoteCollaboratorResponse(BaseModel):
-    """Response schema for a collaborator."""
     id: str
     user: UserSummary
     permission: Permission
@@ -39,25 +35,21 @@ class NoteCollaboratorResponse(BaseModel):
 
 
 class CollaboratorsListResponse(BaseModel):
-    """Response schema for getting collaborators of a note."""
     owner: NoteOwner
     collaborators: list[NoteCollaboratorResponse]
 
 
 class NoteInfo(BaseModel):
-    """Minimal note information for invitations."""
     id: str
     title: str
 
 
 class InvitedByInfo(BaseModel):
-    """Information about who invited."""
     id: str
     username: str
 
 
 class InvitationResponse(BaseModel):
-    """Response schema for an invitation."""
     id: str
     note: NoteInfo
     permission: Permission
@@ -69,5 +61,4 @@ class InvitationResponse(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """Response schema for errors."""
     detail: str

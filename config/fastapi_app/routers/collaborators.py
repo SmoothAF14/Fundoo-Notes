@@ -37,11 +37,7 @@ def get_note_collaborators(
     note_id: UUID,
     current_user = Depends(get_current_user)
 ):
-    """
-    Get all collaborators for a specific note.
     
-    Only users with access to the note can view its collaborators.
-    """
     try:
         note = Note.objects.select_related('created_by').get(id=note_id)
     except Note.DoesNotExist:
@@ -64,7 +60,7 @@ def get_note_collaborators(
                 detail="You do not have access to this note"
             )
     
-    # Get all non-declined collaborators
+    # Get all accepted collaborators
     collaborators = (
         NoteCollaborator.objects.filter(
             note=note
@@ -119,11 +115,6 @@ def add_collaborator(
     data: CollaboratorInviteRequest,
     current_user = Depends(get_current_user)
 ):
-    """
-    Add a collaborator to a note.
-    
-    Only the note owner can invite collaborators.
-    """
     try:
         note = Note.objects.select_related('created_by').get(id=note_id)
     except Note.DoesNotExist:
@@ -174,10 +165,7 @@ def add_collaborator(
         if collab.status != NoteCollaborator.Status.ACCEPTED:
             collab.status = NoteCollaborator.Status.PENDING
             collab.responded_at = None
-    
     collab.save()
-    
-    # Send email in background
     try:
         if (user.email or "").strip():
             send_note_invite_email.delay(
@@ -187,7 +175,6 @@ def add_collaborator(
                 data.permission
             )
     except Exception:
-        # Non-blocking
         pass
     
     response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
@@ -226,11 +213,7 @@ def update_collaborator_permission(
     data: CollaboratorPermissionUpdate,
     current_user = Depends(get_current_user)
 ):
-    """
-    Update a collaborator's permission level.
     
-    Only the note owner can update collaborator permissions.
-    """
     try:
         note = Note.objects.get(id=note_id)
     except Note.DoesNotExist:
@@ -291,11 +274,6 @@ def remove_collaborator(
     user_id: UUID,
     current_user = Depends(get_current_user)
 ):
-    """
-    Remove a collaborator from a note.
-    
-    Only the note owner can remove collaborators.
-    """
     try:
         note = Note.objects.get(id=note_id)
     except Note.DoesNotExist:
@@ -328,9 +306,7 @@ def remove_collaborator(
     status_code=status.HTTP_200_OK
 )
 def get_pending_invitations(current_user = Depends(get_current_user)):
-    """
-    Get all pending invitations for the current user.
-    """
+    
     invitations = (
         NoteCollaborator.objects.filter(
             user=current_user,
@@ -370,9 +346,7 @@ def accept_invitation(
     invite_id: UUID,
     current_user = Depends(get_current_user)
 ):
-    """
-    Accept a pending invitation.
-    """
+    
     try:
         invitation = NoteCollaborator.objects.select_related(
             'note', 'invited_by'
@@ -417,9 +391,7 @@ def decline_invitation(
     invite_id: UUID,
     current_user = Depends(get_current_user)
 ):
-    """
-    Decline a pending invitation.
-    """
+    
     try:
         invitation = NoteCollaborator.objects.get(
             id=invite_id,
