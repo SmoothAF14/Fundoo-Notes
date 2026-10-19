@@ -2,42 +2,30 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../../app/providers/useAuth';
+import { useAppDispatch, useAppSelector } from '../../../app/store';
+import { fetchLabels } from '../../../app/store/labelsSlice';
 import { ApiError } from '../../../shared/api/ApiError';
-import type { Label } from '../../../shared/types';
-import { listLabels } from '../../labels/api';
 import { createNote } from '../api';
 
 export function NoteCreatePage() {
   const { token } = useAuth();
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
+
+  const labels = useAppSelector((s) => s.labels.items);
+  const loadingLabels = useAppSelector((s) => s.labels.loading);
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [selectedLabels, setSelectedLabels] = useState<number[]>([]);
-  const [labels, setLabels] = useState<Label[]>([]);
-
   const [error, setError] = useState<string | null>(null);
-  const [loadingLabels, setLoadingLabels] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      if (!token) return;
-      setLoadingLabels(true);
-      try {
-        const data = await listLabels(token);
-        if (mounted) setLabels(data);
-      } catch {
-        // labels are optional
-      } finally {
-        if (mounted) setLoadingLabels(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [token]);
+    if (token && labels.length === 0) {
+      dispatch(fetchLabels(token));
+    }
+  }, [token, labels.length, dispatch]);
 
   const onSubmit = useCallback(
     async (e: React.FormEvent) => {

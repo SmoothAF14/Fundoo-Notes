@@ -1,11 +1,21 @@
-import { useContext } from 'react';
+import { useAppDispatch, useAppSelector } from '../store';
+import { setAuth, clearAuthState } from '../store/authSlice';
+import type { AuthTokenResponse } from '../../shared/types';
 
-import { AuthContext } from './AuthProvider';
-
+/**
+ * Drop-in replacement for the old Context-based useAuth.
+ * Components keep the same API: { token, user, isAuthenticated, setAuth, clear }
+ */
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error('useAuth must be used within <AuthProvider />');
-  }
-  return ctx;
+  const dispatch = useAppDispatch();
+  const token = useAppSelector((s) => s.auth.token);
+  const user = useAppSelector((s) => s.auth.user);
+
+  return {
+    token,
+    user,
+    isAuthenticated: !!token,
+    setAuth: (auth: AuthTokenResponse) => dispatch(setAuth(auth)),
+    clear: () => dispatch(clearAuthState()),
+  };
 }

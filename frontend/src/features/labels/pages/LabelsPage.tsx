@@ -1,37 +1,25 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '../../../app/providers/useAuth';
-import { ApiError } from '../../../shared/api/ApiError';
-import type { Label } from '../../../shared/types';
-import { createLabel, listLabels } from '../api';
+import { useAppDispatch, useAppSelector } from '../../../app/store';
+import { fetchLabels, addLabel, clearLabelsError } from '../../../app/store/labelsSlice';
 
 export function LabelsPage() {
   const { token } = useAuth();
-  const [labels, setLabels] = useState<Label[]>([]);
+  const dispatch = useAppDispatch();
+
+  const labels = useAppSelector((s) => s.labels.items);
+  const loading = useAppSelector((s) => s.labels.loading);
+  const error = useAppSelector((s) => s.labels.error);
+
   const [title, setTitle] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      if (!token) return;
-      setError(null);
-      setLoading(true);
-      try {
-        const data = await listLabels(token);
-        if (mounted) setLabels(data);
-      } catch (err) {
-        if (mounted) setError(err instanceof ApiError ? err.message : 'Failed to load labels');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [token]);
+    if (token) {
+      dispatch(fetchLabels(token));
+    }
+  }, [token, dispatch]);
 
   const onCreate = useCallback(
     async (e: React.FormEvent) => {
@@ -40,19 +28,16 @@ export function LabelsPage() {
       const trimmed = title.trim();
       if (!trimmed) return;
       setSaving(true);
-      setError(null);
+      dispatch(clearLabelsError());
       try {
-        const created = await createLabel(token, { title: trimmed });
-        setLabels((prev) => [created, ...prev]);
+        await dispatch(addLabel({ token, title: trimmed })).unwrap();
         setTitle('');
         window.dispatchEvent(new Event('fundoo:labels-refresh'));
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Failed to create label');
       } finally {
         setSaving(false);
       }
     },
-    [token, title]
+    [token, title, dispatch]
   );
 
   return (

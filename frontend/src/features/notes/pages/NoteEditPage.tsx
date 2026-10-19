@@ -2,23 +2,24 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { useAuth } from '../../../app/providers/useAuth';
+import { useAppDispatch, useAppSelector } from '../../../app/store';
+import { fetchLabels } from '../../../app/store/labelsSlice';
 import { ApiError } from '../../../shared/api/ApiError';
-import type { Label, Note } from '../../../shared/types';
-import { listLabels } from '../../labels/api';
+import type { Note } from '../../../shared/types';
 import { getNote, updateNote } from '../api';
 
 export function NoteEditPage() {
   const { token } = useAuth();
   const navigate = useNavigate();
   const { id } = useParams();
+  const dispatch = useAppDispatch();
+
+  const labels = useAppSelector((s) => s.labels.items);
 
   const [note, setNote] = useState<Note | null>(null);
-  const [labels, setLabels] = useState<Label[]>([]);
-
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [selectedLabels, setSelectedLabels] = useState<number[]>([]);
-
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -30,10 +31,9 @@ export function NoteEditPage() {
       setLoading(true);
       setError(null);
       try {
-        const [n, lbls] = await Promise.all([getNote(token, id), listLabels(token)]);
+        const n = await getNote(token, id);
         if (!mounted) return;
         setNote(n);
-        setLabels(lbls);
         setTitle(n.title);
         setContent(n.content);
         setSelectedLabels(n.labels);
@@ -44,10 +44,14 @@ export function NoteEditPage() {
         if (mounted) setLoading(false);
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [token, id]);
+
+  useEffect(() => {
+    if (token && labels.length === 0) {
+      dispatch(fetchLabels(token));
+    }
+  }, [token, labels.length, dispatch]);
 
   const onSubmit = useCallback(
     async (e: React.FormEvent) => {

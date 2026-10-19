@@ -1,25 +1,26 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useAuth } from '../../../app/providers/useAuth';
+import { useAppDispatch, useAppSelector } from '../../../app/store';
+import { fetchNotes, removeNote, clearNotesError } from '../../../app/store/notesSlice';
+import { fetchLabels } from '../../../app/store/labelsSlice';
 import { ApiError } from '../../../shared/api/ApiError';
-import type { Label, NoteCollaborator, NoteCollaboratorsResponse, NotesListItem } from '../../../shared/types';
-import { listLabels } from '../../labels/api';
+import type { NoteCollaborator, NoteCollaboratorsResponse, NotesListItem } from '../../../shared/types';
 import {
-  deleteNote,
   inviteCollaborator,
   listCollaborators,
-  listNotes,
   removeCollaborator,
   updateCollaboratorPermission,
 } from '../api';
 
 export function NotesPage({ mode = 'personal' }: { mode?: 'personal' | 'shared' }) {
   const { token } = useAuth();
-  const [notes, setNotes] = useState<NotesListItem[]>([]);
-  const [labels, setLabels] = useState<Label[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const dispatch = useAppDispatch();
+
+  const notes = useAppSelector((s) => s.notes.items);
+  const loading = useAppSelector((s) => s.notes.loading);
+  const error = useAppSelector((s) => s.notes.error);
 
   const [collabOpen, setCollabOpen] = useState(false);
   const [collabNote, setCollabNote] = useState<NotesListItem | null>(null);
@@ -29,27 +30,18 @@ export function NotesPage({ mode = 'personal' }: { mode?: 'personal' | 'shared' 
   const [inviteEmail, setInviteEmail] = useState('');
   const [invitePermission, setInvitePermission] = useState<'view' | 'edit'>('view');
 
-  const load = useCallback(async () => {
+  const load = useCallback(() => {
     if (!token) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const [notesData, labelsData] = await Promise.all([listNotes(token), listLabels(token)]);
-      setNotes(notesData);
-      setLabels(labelsData);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load notes');
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
+    dispatch(fetchNotes(token));
+    dispatch(fetchLabels(token));
+  }, [token, dispatch]);
 
   useEffect(() => {
-    void load();
+    load();
   }, [load]);
 
   useEffect(() => {
-    const onRefresh = () => void load();
+    const onRefresh = () => load();
     window.addEventListener('fundoo:notes-refresh', onRefresh);
     return () => window.removeEventListener('fundoo:notes-refresh', onRefresh);
   }, [load]);
@@ -132,32 +124,23 @@ export function NotesPage({ mode = 'personal' }: { mode?: 'personal' | 'shared' 
   );
 
   const onDelete = useCallback(
-    async (id: string) => {
+    (id: string) => {
       if (!token) return;
-      setError(null);
-      try {
-        await deleteNote(token, id);
-        setNotes((prev) => prev.filter((n) => n.id !== id));
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Failed to delete note');
-      }
+      dispatch(clearNotesError());
+      dispatch(removeNote({ token, id }));
     },
-    [token]
+    [token, dispatch]
   );
 
-  const visibleNotes = useMemo(() => {
-    const filtered = mode === 'shared' ? notes.filter((n) => n.access !== 'owner') : notes.filter((n) => n.access === 'owner');
-    return filtered;
-  }, [notes, mode]);
+  const visibleNotes = mode === 'shared'
+    ? notes.filter((n) => n.access !== 'owner')
+    : notes.filter((n) => n.access === 'owner');
 
-  const getLabelChips = useCallback((labelNames: string) => {
+  const getLabelChips = (labelNames: string) => {
     const raw = (labelNames || '').trim();
     if (!raw) return [] as string[];
-    return raw
-      .split(',')
-      .map((x) => x.trim())
-      .filter(Boolean);
-  }, []);
+    return raw.split(',').map((x) => x.trim()).filter(Boolean);
+  };
 
   return (
     <div>
@@ -237,7 +220,7 @@ export function NotesPage({ mode = 'personal' }: { mode?: 'personal' | 'shared' 
                       </Link>
                       <button
                         type="button"
-                        onClick={() => void onDelete(note.id)}
+                        onClick={() => onDelete(note.id)}
                         className="rounded-full px-4 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
                       >
                         Delete
