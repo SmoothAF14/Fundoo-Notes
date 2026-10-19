@@ -1,24 +1,30 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-function formatSeconds(totalSeconds: number): string {
+export function formatSeconds(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
 }
 
-export function OtpTimer({ expiresAtMs }: { expiresAtMs: number }) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(t);
-  }, []);
-
-  const remainingSeconds = useMemo(() => Math.max(0, Math.ceil((expiresAtMs - now) / 1000)), [expiresAtMs, now]);
-  return <span className="font-semibold text-slate-900">{formatSeconds(remainingSeconds)}</span>;
+function secondsUntil(expiresAtMs: number | null): number {
+  return expiresAtMs ? Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 1000)) : 0;
 }
 
-export function isExpired(expiresAtMs: number): boolean {
-  return Date.now() >= expiresAtMs;
+/** Seconds left until `expiresAtMs`, re-rendering every second until it hits zero. */
+export function useCountdown(expiresAtMs: number | null): number {
+  const [seconds, setSeconds] = useState(() => secondsUntil(expiresAtMs));
+
+  useEffect(() => {
+    setSeconds(secondsUntil(expiresAtMs));
+    if (!expiresAtMs) return;
+    const t = window.setInterval(() => {
+      const next = secondsUntil(expiresAtMs);
+      setSeconds(next);
+      if (next === 0) window.clearInterval(t);
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [expiresAtMs]);
+
+  return seconds;
 }

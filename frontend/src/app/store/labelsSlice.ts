@@ -3,6 +3,7 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import type { Label } from '../../shared/types';
 import {
   createLabel as apiCreateLabel,
+  deleteLabel as apiDeleteLabel,
   listLabels as apiListLabels,
 } from '../../features/labels/api';
 
@@ -40,6 +41,18 @@ export const addLabel = createAsyncThunk(
   }
 );
 
+export const removeLabel = createAsyncThunk(
+  'labels/remove',
+  async ({ token, labelId }: { token: string; labelId: number }, { rejectWithValue }) => {
+    try {
+      await apiDeleteLabel(token, labelId);
+      return labelId;
+    } catch (err: any) {
+      return rejectWithValue(err?.message ?? 'Failed to delete label');
+    }
+  }
+);
+
 const labelsSlice = createSlice({
   name: 'labels',
   initialState,
@@ -68,6 +81,13 @@ const labelsSlice = createSlice({
         state.items = [action.payload, ...state.items];
       })
       .addCase(addLabel.rejected, (state, action) => {
+        state.error = action.payload as string;
+      })
+      // removeLabel
+      .addCase(removeLabel.fulfilled, (state, action) => {
+        state.items = state.items.filter((l) => l.label_id !== action.payload);
+      })
+      .addCase(removeLabel.rejected, (state, action) => {
         state.error = action.payload as string;
       });
   },

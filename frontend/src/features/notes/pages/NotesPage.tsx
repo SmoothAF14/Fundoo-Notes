@@ -1,422 +1,173 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../../app/providers/useAuth';
 import { useAppDispatch, useAppSelector } from '../../../app/store';
-import { fetchNotes, removeNote, clearNotesError } from '../../../app/store/notesSlice';
-import { fetchLabels } from '../../../app/store/labelsSlice';
-import { ApiError } from '../../../shared/api/ApiError';
-import type { NoteCollaborator, NoteCollaboratorsResponse, NotesListItem } from '../../../shared/types';
-import {
-  inviteCollaborator,
-  listCollaborators,
-  removeCollaborator,
-  updateCollaboratorPermission,
-} from '../api';
+import { clearNotesError, fetchNotes, removeNote } from '../../../app/store/notesSlice';
+import type { NotesListItem } from '../../../shared/types';
+import { Alert } from '../../../shared/ui/Alert';
+import { Button, buttonClass } from '../../../shared/ui/Button';
+import { Icon } from '../../../shared/ui/Icon';
+import { Modal } from '../../../shared/ui/Modal';
+import { CollaboratorsModal } from '../components/CollaboratorsModal';
+import { NoteCard, NoteCardSkeleton, splitLabels } from '../components/NoteCard';
 
 export function NotesPage({ mode = 'personal' }: { mode?: 'personal' | 'shared' }) {
   const { token } = useAuth();
   const dispatch = useAppDispatch();
+  const [params, setParams] = useSearchParams();
 
   const notes = useAppSelector((s) => s.notes.items);
   const loading = useAppSelector((s) => s.notes.loading);
   const error = useAppSelector((s) => s.notes.error);
 
-  const [collabOpen, setCollabOpen] = useState(false);
-  const [collabNote, setCollabNote] = useState<NotesListItem | null>(null);
-  const [collabData, setCollabData] = useState<NoteCollaboratorsResponse | null>(null);
-  const [collabLoading, setCollabLoading] = useState(false);
-  const [collabError, setCollabError] = useState<string | null>(null);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [invitePermission, setInvitePermission] = useState<'view' | 'edit'>('view');
+  const [shareNote, setShareNote] = useState<NotesListItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<NotesListItem | null>(null);
+
+  const query = (params.get('q') || '').trim().toLowerCase();
+  const labelFilter = params.get('label') || '';
 
   const load = useCallback(() => {
-    if (!token) return;
-    dispatch(fetchNotes(token));
-    dispatch(fetchLabels(token));
+    if (token) dispatch(fetchNotes(token));
   }, [token, dispatch]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  useEffect(() => {
-    const onRefresh = () => load();
-    window.addEventListener('fundoo:notes-refresh', onRefresh);
-    return () => window.removeEventListener('fundoo:notes-refresh', onRefresh);
-  }, [load]);
-
-  const openCollaborators = useCallback(
-    async (note: NotesListItem) => {
-      if (!token) return;
-      setCollabOpen(true);
-      setCollabNote(note);
-      setCollabLoading(true);
-      setCollabError(null);
-      setInviteEmail('');
-      setInvitePermission('view');
-      try {
-        const data = await listCollaborators(token, note.id);
-        setCollabData(data);
-      } catch (err) {
-        setCollabError(err instanceof ApiError ? err.message : 'Failed to load collaborators');
-        setCollabData(null);
-      } finally {
-        setCollabLoading(false);
-      }
-    },
-    [token]
+  const visibleNotes = useMemo(
+    () =>
+      notes.filter((n) => {
+        if (mode === 'shared' ? n.access === 'owner' : n.access !== 'owner') return false;
+        if (labelFilter && !splitLabels(n.label_names).includes(labelFilter)) return false;
+        if (!query) return true;
+        return [n.title, n.content, n.label_names].some((s) => (s || '').toLowerCase().includes(query));
+      }),
+    [notes, mode, labelFilter, query]
   );
 
-  const reloadCollaborators = useCallback(async () => {
-    if (!token || !collabNote) return;
-    try {
-      const data = await listCollaborators(token, collabNote.id);
-      setCollabData(data);
-    } catch {
-      // keep existing
-    }
-  }, [token, collabNote]);
-
-  const onInvite = useCallback(async () => {
-    if (!token || !collabNote) return;
-    setCollabError(null);
-    const email = inviteEmail.trim();
-    if (!email) {
-      setCollabError('Enter collaborator email');
-      return;
-    }
-    try {
-      await inviteCollaborator(token, collabNote.id, { email, permission: invitePermission });
-      setInviteEmail('');
-      await reloadCollaborators();
-    } catch (err) {
-      setCollabError(err instanceof ApiError ? err.message : 'Failed to invite collaborator');
-    }
-  }, [token, collabNote, inviteEmail, invitePermission, reloadCollaborators]);
-
-  const onUpdatePermission = useCallback(
-    async (collab: NoteCollaborator, permission: 'view' | 'edit') => {
-      if (!token || !collabNote) return;
-      setCollabError(null);
-      try {
-        await updateCollaboratorPermission(token, collabNote.id, collab.user.id, permission);
-        await reloadCollaborators();
-      } catch (err) {
-        setCollabError(err instanceof ApiError ? err.message : 'Failed to update permission');
-      }
-    },
-    [token, collabNote, reloadCollaborators]
-  );
-
-  const onRemove = useCallback(
-    async (collab: NoteCollaborator) => {
-      if (!token || !collabNote) return;
-      setCollabError(null);
-      try {
-        await removeCollaborator(token, collabNote.id, collab.user.id);
-        await reloadCollaborators();
-      } catch (err) {
-        setCollabError(err instanceof ApiError ? err.message : 'Failed to remove collaborator');
-      }
-    },
-    [token, collabNote, reloadCollaborators]
-  );
-
-  const onDelete = useCallback(
-    (id: string) => {
-      if (!token) return;
-      dispatch(clearNotesError());
-      dispatch(removeNote({ token, id }));
-    },
-    [token, dispatch]
-  );
-
-  const visibleNotes = mode === 'shared'
-    ? notes.filter((n) => n.access !== 'owner')
-    : notes.filter((n) => n.access === 'owner');
-
-  const getLabelChips = (labelNames: string) => {
-    const raw = (labelNames || '').trim();
-    if (!raw) return [] as string[];
-    return raw.split(',').map((x) => x.trim()).filter(Boolean);
+  const confirmDelete = () => {
+    if (!token || !deleteTarget) return;
+    dispatch(clearNotesError());
+    dispatch(removeNote({ token, id: deleteTarget.id }));
+    setDeleteTarget(null);
   };
+
+  const clearFilter = (key: 'q' | 'label') => {
+    const next = new URLSearchParams(params);
+    next.delete(key);
+    setParams(next, { replace: true });
+  };
+
+  const isShared = mode === 'shared';
+  const filtered = !!(query || labelFilter);
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">{mode === 'shared' ? 'Shared Notes' : 'Notes'}</h1>
-          <p className="text-sm text-slate-600 mt-1">
-            {mode === 'shared' ? 'Notes shared with you.' : 'Your personal notes.'}
+          <h1 className="text-2xl font-bold tracking-tight text-ink">{isShared ? 'Shared with me' : 'My notes'}</h1>
+          <p className="mt-1 text-sm text-subtle">
+            {loading ? 'Loading…' : `${visibleNotes.length} ${visibleNotes.length === 1 ? 'note' : 'notes'}`}
+            {isShared ? ' others have shared with you' : ''}
           </p>
         </div>
-
-        {mode === 'shared' ? null : (
-          <Link
-            to="/app/notes/new"
-            className="rounded-full px-5 py-2 font-semibold whitespace-nowrap bg-amber-200 hover:bg-amber-300 transition border border-amber-300"
-          >
-            Create note
+        {isShared ? null : (
+          <Link to="/app/notes/new" className={buttonClass('primary')}>
+            <Icon name="plus" className="h-4 w-4" /> New note
           </Link>
         )}
       </div>
 
-      {error ? (
-        <div className="mt-4 rounded-xl px-4 py-3 text-sm bg-white border border-rose-200 shadow-sm">
-          <span className="font-semibold text-rose-700">Error:</span> <span className="text-slate-800">{error}</span>
+      {filtered ? (
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-subtle">Filtered by</span>
+          {labelFilter ? <FilterChip icon="tag" text={labelFilter} onClear={() => clearFilter('label')} /> : null}
+          {query ? <FilterChip icon="search" text={`“${params.get('q')}”`} onClear={() => clearFilter('q')} /> : null}
         </div>
       ) : null}
 
-      {loading ? (
-        <p className="mt-6 text-sm text-slate-600">Loading…</p>
+      {error ? <Alert className="mt-5">{error}</Alert> : null}
+
+      {loading && !notes.length ? (
+        <div className="note-masonry mt-6 columns-1 sm:columns-2 xl:columns-3 2xl:columns-4">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <NoteCardSkeleton key={i} />
+          ))}
+        </div>
       ) : visibleNotes.length ? (
-        <div className="mt-6">
-          <div className="keep-masonry columns-1 sm:columns-2 lg:columns-3">
-            {visibleNotes.map((note) => (
-              <article key={note.id} className="keep-note bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="rounded-full px-3 py-1 text-xs bg-slate-100 border border-slate-200 text-slate-700">
-                    Owner: <span className="font-semibold">{note.owner.name}</span>
-                  </span>
-
-                  {note.access !== 'owner' ? (
-                    <span
-                      className={
-                        note.access === 'edit'
-                          ? 'rounded-full px-3 py-1 text-xs bg-rose-100 border border-rose-200 text-rose-700'
-                          : 'rounded-full px-3 py-1 text-xs bg-sky-100 border border-sky-200 text-sky-700'
-                      }
-                    >
-                      {note.access === 'edit' ? 'Can Edit' : 'Can View'}
-                    </span>
-                  ) : null}
-                </div>
-
-                <header>
-                  <h3 className="text-base font-semibold leading-5 break-words">{note.title}</h3>
-                </header>
-
-                {note.label_names?.trim() ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {getLabelChips(note.label_names).map((t) => (
-                      <span key={`${note.id}:${t}`} className="rounded-full px-3 py-1 text-xs bg-slate-100 border border-slate-200 text-slate-700">
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-
-                <p className="mt-3 text-sm text-slate-700 whitespace-pre-wrap break-words">{note.content}</p>
-
-                <div className="mt-4 flex items-center gap-2 flex-wrap">
-                  {note.access === 'owner' ? (
-                    <>
-                      <Link
-                        to={`/app/notes/${note.id}/edit`}
-                        className="rounded-full px-4 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
-                      >
-                        Edit
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => onDelete(note.id)}
-                        className="rounded-full px-4 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void openCollaborators(note)}
-                        className="rounded-full px-4 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
-                      >
-                        Collab
-                      </button>
-                    </>
-                  ) : note.access === 'edit' ? (
-                    <Link
-                      to={`/app/notes/${note.id}/edit`}
-                      className="rounded-full px-4 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
-                    >
-                      Edit
-                    </Link>
-                  ) : (
-                    <span className="rounded-full px-4 py-1.5 text-xs bg-slate-50 border border-slate-200 text-slate-400 cursor-not-allowed">
-                      View only
-                    </span>
-                  )}
-                </div>
-
-                {note.collaborators?.length ? (
-                  <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
-                    {note.collaborators.map((sw) => (
-                      <span
-                        key={`${note.id}:${sw.name}:${sw.permission}`}
-                        className="rounded-full px-3 py-1 text-xs bg-white border border-slate-200 text-slate-700"
-                      >
-                        {sw.name} - {sw.permission === 'edit' ? 'Can Edit' : 'Can View'}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </article>
-            ))}
-          </div>
+        <div className="note-masonry mt-6 columns-1 sm:columns-2 xl:columns-3 2xl:columns-4">
+          {visibleNotes.map((note) => (
+            <NoteCard key={note.id} note={note} onDelete={setDeleteTarget} onShare={setShareNote} />
+          ))}
         </div>
       ) : (
-        <section className="mt-6 bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-          <h2 className="text-lg font-semibold">{mode === 'shared' ? 'No shared notes' : 'No notes yet'}</h2>
-          <p className="text-sm text-slate-600 mt-1">
-            {mode === 'shared'
-              ? 'Notes shared with you will appear here.'
-              : 'Create your first note to see it here.'}
-          </p>
-          {mode === 'shared' ? null : (
-            <Link
-              to="/app/notes/new"
-              className="inline-block mt-4 rounded-full px-4 py-2 font-semibold bg-amber-200 hover:bg-amber-300 transition border border-amber-300"
-            >
-              Create a note
-            </Link>
-          )}
-        </section>
+        <EmptyState shared={isShared} filtered={filtered} />
       )}
 
-      {/* Collaborators modal */}
-      <div className={collabOpen ? 'fixed inset-0 z-40 flex items-center justify-center' : 'hidden'}>
-        <button
-          type="button"
-          aria-label="Close collaborators"
-          onClick={() => setCollabOpen(false)}
-          className="absolute inset-0 bg-slate-900/20"
-        />
-        <div className="relative w-[min(720px,calc(100vw-2rem))] bg-white border border-slate-200 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-            <div className="font-semibold">Collaborators</div>
-            <button
-              type="button"
-              onClick={() => setCollabOpen(false)}
-              className="rounded-full px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
-            >
-              Close
-            </button>
-          </div>
+      {token ? <CollaboratorsModal token={token} note={shareNote} onClose={() => setShareNote(null)} onChanged={load} /> : null}
 
-          <div className="p-5">
-            {collabError ? (
-              <div className="mb-4 rounded-xl px-4 py-3 text-sm bg-white border border-rose-200 shadow-sm">
-                <span className="font-semibold text-rose-700">Error:</span>{' '}
-                <span className="text-slate-800">{collabError}</span>
-              </div>
-            ) : null}
-
-            {collabLoading ? (
-              <div className="text-sm text-slate-600">Loading…</div>
-            ) : collabData ? (
-              <div className="space-y-4">
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="font-semibold">{collabData.owner.username}</div>
-                      <div className="text-xs text-slate-500">{collabData.owner.email || ''}</div>
-                    </div>
-                    <span className="rounded-full px-3 py-1 text-xs bg-emerald-100 border border-emerald-200 text-emerald-700">Owner</span>
-                  </div>
-                </div>
-
-                {collabNote?.access === 'owner' ? (
-                  <div className="rounded-xl border border-slate-200 p-4">
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={inviteEmail}
-                        onChange={(e) => setInviteEmail(e.target.value)}
-                        placeholder="Enter collaborator email"
-                        className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
-                      />
-                      <select
-                        value={invitePermission}
-                        onChange={(e) => setInvitePermission(e.target.value as 'view' | 'edit')}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-300"
-                      >
-                        <option value="view">Can view</option>
-                        <option value="edit">Can edit</option>
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => void onInvite()}
-                        className="rounded-lg px-4 py-2 text-sm font-semibold bg-amber-200 hover:bg-amber-300 transition border border-amber-300"
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-
-                {collabData.collaborators.length ? (
-                  <div className="space-y-3">
-                    {collabData.collaborators.map((c) => (
-                      <div key={c.id} className="rounded-xl border border-slate-200 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="font-semibold truncate">{c.user.username}</div>
-                            <div className="text-xs text-slate-500 truncate">{c.user.email || ''}</div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={
-                                c.status === 'pending'
-                                  ? 'rounded-full px-3 py-1 text-xs bg-slate-100 border border-slate-200 text-slate-700'
-                                  : 'rounded-full px-3 py-1 text-xs bg-slate-50 border border-slate-200 text-slate-500'
-                              }
-                            >
-                              {c.status}
-                            </span>
-
-                            {collabNote?.access === 'owner' ? (
-                              <>
-                                <select
-                                  value={c.permission}
-                                  onChange={(e) => void onUpdatePermission(c, e.target.value as 'view' | 'edit')}
-                                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-                                >
-                                  <option value="view">Can view</option>
-                                  <option value="edit">Can edit</option>
-                                </select>
-                                <button
-                                  type="button"
-                                  onClick={() => void onRemove(c)}
-                                  className="rounded-lg px-3 py-2 text-sm font-semibold bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
-                                >
-                                  Remove
-                                </button>
-                              </>
-                            ) : (
-                              <span
-                                className={
-                                  c.permission === 'edit'
-                                    ? 'rounded-full px-3 py-1 text-xs bg-rose-100 border border-rose-200 text-rose-700'
-                                    : 'rounded-full px-3 py-1 text-xs bg-sky-100 border border-sky-200 text-sky-700'
-                                }
-                              >
-                                {c.permission === 'edit' ? 'Can edit' : 'Can view'}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-sm text-slate-600">No collaborators.</div>
-                )}
-              </div>
-            ) : (
-              <div className="text-sm text-slate-600">No data.</div>
-            )}
-          </div>
-        </div>
-      </div>
+      <Modal
+        open={!!deleteTarget}
+        title="Delete note?"
+        size="sm"
+        onClose={() => setDeleteTarget(null)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" icon="trash" onClick={confirmDelete}>
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-subtle">
+          “<span className="font-semibold text-ink">{deleteTarget?.title}</span>” will be permanently deleted for you and everyone
+          it's shared with.
+        </p>
+      </Modal>
     </div>
+  );
+}
+
+function FilterChip({ icon, text, onClear }: { icon: 'tag' | 'search'; text: string; onClear: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-primary-soft py-1 pl-3 pr-1 font-medium text-primary-hover">
+      <Icon name={icon} className="h-3.5 w-3.5" />
+      {text}
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={`Clear ${icon === 'tag' ? 'label' : 'search'} filter`}
+        className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      >
+        <Icon name="x" className="h-3.5 w-3.5" />
+      </button>
+    </span>
+  );
+}
+
+function EmptyState({ shared, filtered }: { shared: boolean; filtered: boolean }) {
+  const [title, text] = filtered
+    ? ['No matching notes', 'Try a different search or clear the filters.']
+    : shared
+      ? ['Nothing shared yet', 'When someone shares a note with you and you accept the invite, it shows up here.']
+      : ['No notes yet', 'Capture your first idea — it only takes a second.'];
+
+  return (
+    <section className="mt-10 flex flex-col items-center rounded-2xl border border-dashed border-line bg-white/60 px-6 py-16 text-center">
+      <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-soft text-primary">
+        <Icon name={filtered ? 'search' : shared ? 'users' : 'note'} className="h-7 w-7" />
+      </span>
+      <h2 className="mt-4 text-lg font-semibold text-ink">{title}</h2>
+      <p className="mt-1 max-w-sm text-sm text-subtle">{text}</p>
+      {!shared && !filtered ? (
+        <Link to="/app/notes/new" className={buttonClass('primary', 'md', 'mt-6')}>
+          <Icon name="plus" className="h-4 w-4" /> Create a note
+        </Link>
+      ) : null}
+    </section>
   );
 }

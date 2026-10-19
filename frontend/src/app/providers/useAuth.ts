@@ -2,10 +2,7 @@ import { useAppDispatch, useAppSelector } from '../store';
 import { setAuth, clearAuthState } from '../store/authSlice';
 import type { AuthTokenResponse } from '../../shared/types';
 
-/**
- * Drop-in replacement for the old Context-based useAuth.
- * Components keep the same API: { token, user, isAuthenticated, setAuth, clear }
- */
+/** Auth state from the Redux store: { token, user, isAuthenticated, setAuth, clear } */
 export function useAuth() {
   const dispatch = useAppDispatch();
   const token = useAppSelector((s) => s.auth.token);

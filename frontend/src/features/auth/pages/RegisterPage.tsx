@@ -2,7 +2,11 @@ import React, { useCallback, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { ApiError } from '../../../shared/api/ApiError';
+import { Alert } from '../../../shared/ui/Alert';
+import { Button } from '../../../shared/ui/Button';
+import { TextField } from '../../../shared/ui/Field';
 import { requestRegisterOtp } from '../api';
+import { AuthShell } from '../components/AuthShell';
 import { saveOtpSession } from '../otpStorage';
 
 export function RegisterPage() {
@@ -14,11 +18,6 @@ export function RegisterPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const onPhoneChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 10);
-    setPhoneNumber(digitsOnly);
-  }, []);
 
   const onSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -32,21 +31,11 @@ export function RegisterPage() {
 
       setLoading(true);
       try {
-        const res = await requestRegisterOtp({
-          username,
-          email,
-          password,
-          phone_number: phone_number.trim() || null,
-        });
-        const expiresAtMs = Date.now() + res.otp_expires_in_seconds * 1000;
-        saveOtpSession('register', email, expiresAtMs);
+        const res = await requestRegisterOtp({ username, email, password, phone_number: phone_number || null });
+        saveOtpSession('register', email, Date.now() + res.otp_expires_in_seconds * 1000);
         navigate(`/auth/register/verify?e=${encodeURIComponent(email)}`, { replace: true });
       } catch (err) {
-        if (err instanceof ApiError) {
-          setError(err.message);
-        } else {
-          setError('Something went wrong');
-        }
+        setError(err instanceof ApiError ? err.message : 'Something went wrong');
       } finally {
         setLoading(false);
       }
@@ -55,106 +44,44 @@ export function RegisterPage() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <header className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200">
-        <div className="px-4 py-3">
-          <div className="mx-auto max-w-6xl flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-xl bg-amber-200 flex items-center justify-center border border-amber-300">
-                <span className="text-sm font-semibold text-slate-900">FN</span>
-              </div>
-              <div className="leading-tight">
-                <div className="text-lg font-semibold">Fundoo Notes</div>
-                <div className="text-xs text-slate-500">keep-style notes</div>
-              </div>
-            </div>
-            <div className="text-sm">
-              <Link className="rounded-full px-4 py-2 bg-slate-100 hover:bg-slate-200 transition border border-slate-200" to="/login">
-                Login
-              </Link>
-            </div>
-          </div>
-        </div>
-      </header>
+    <AuthShell
+      title="Create your account"
+      subtitle="It takes less than a minute. We'll verify your email with a one-time code."
+      footer={
+        <>
+          Already have an account?{' '}
+          <Link className="font-semibold text-primary hover:text-primary-hover" to="/login">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      {error ? <Alert className="mb-5">{error}</Alert> : null}
 
-      <main className="px-4 pb-10">
-        <div className="mx-auto max-w-6xl pt-10">
-          <section className="max-w-md mx-auto">
-            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-              <h1 className="text-2xl font-semibold">Register</h1>
-              <p className="text-sm text-slate-600 mt-1">Create an account and verify OTP.</p>
-
-              {error ? (
-                <div className="mt-4 rounded-xl px-4 py-3 text-sm bg-white border border-rose-200 shadow-sm">
-                  <span className="font-semibold text-rose-700">Error:</span> <span className="text-slate-800">{error}</span>
-                </div>
-              ) : null}
-
-              <form onSubmit={onSubmit} className="mt-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700">Username</label>
-                  <input
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700">Phone</label>
-                  <input
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
-                    value={phone_number}
-                    onChange={onPhoneChange}
-                    placeholder="Optional"
-                    inputMode="numeric"
-                    pattern="\\d{10}"
-                    maxLength={10}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700">Email</label>
-                  <input
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700">Password</label>
-                  <input
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full rounded-full px-5 py-2 font-semibold bg-amber-200 hover:bg-amber-300 transition border border-amber-300 disabled:opacity-60"
-                >
-                  {loading ? 'Sending OTP…' : 'Create account'}
-                </button>
-              </form>
-
-              <div className="mt-5 text-sm text-slate-600">
-                Already have an account?{' '}
-                <Link className="font-medium text-slate-900 hover:underline" to="/login">
-                  Login
-                </Link>
-              </div>
-            </div>
-          </section>
-        </div>
-      </main>
-    </div>
+      <form onSubmit={onSubmit} className="space-y-5">
+        <TextField label="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required />
+        <TextField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
+        <TextField
+          label="Phone (optional)"
+          hint="10 digits, numbers only."
+          value={phone_number}
+          onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+          inputMode="numeric"
+          autoComplete="tel-national"
+          maxLength={10}
+        />
+        <TextField
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="new-password"
+          required
+        />
+        <Button type="submit" className="w-full" loading={loading}>
+          {loading ? 'Sending code…' : 'Create account'}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

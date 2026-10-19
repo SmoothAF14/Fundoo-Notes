@@ -94,7 +94,7 @@ class RegisterAPIView(APIView):
                 "username": user.username,
                 "email": user.email,
                 "phone_number": user.phone_number,
-                "token": token.key,
+                "token": token,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -276,7 +276,7 @@ class RegisterVerifyOtpAPIView(APIView):
                 "username": user.username,
                 "email": user.email,
                 "phone_number": user.phone_number,
-                "token": token.key,
+                "token": token,
             },
             status=status.HTTP_201_CREATED,
         )

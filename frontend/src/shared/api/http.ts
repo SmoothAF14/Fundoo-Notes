@@ -19,6 +19,17 @@ function isJsonResponse(contentType: string | null): boolean {
   return !!contentType && contentType.toLowerCase().includes('application/json');
 }
 
+/** DRF errors: {"detail": "..."} or field errors like {"username": "..."} / {"email": ["..."]}. */
+function errorMessageFrom(body: Json): string | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const { detail, ...fields } = body as Record<string, unknown>;
+  for (const value of [detail, ...Object.values(fields)]) {
+    const first = Array.isArray(value) ? value[0] : value;
+    if (typeof first === 'string' && first) return first;
+  }
+  return null;
+}
+
 export async function apiRequest<T = unknown>(
   path: string,
   options: RequestInit & { token?: string | null } = {}
@@ -50,10 +61,10 @@ export async function apiRequest<T = unknown>(
   const body: Json = isJsonResponse(contentType) ? await res.json() : await res.text();
 
   if (!res.ok) {
-    const message =
-      typeof body === 'string'
-        ? body
-        : (body as any)?.detail || `Request failed (${res.status})`;
+    // Non-JSON error bodies (e.g. Django's HTML debug page) are never shown to the user.
+    const fallback =
+      res.status >= 500 ? `Server error (${res.status}). Please try again.` : `Request failed (${res.status})`;
+    const message = errorMessageFrom(body) || fallback;
     throw new ApiError(message, res.status, body);
   }
 

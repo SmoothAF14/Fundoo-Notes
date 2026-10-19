@@ -1,115 +1,120 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../app/providers/useAuth';
-import { apiRequest } from '../api/http';
-import type { Label } from '../types';
-import { listLabels } from '../../features/labels/api';
+import { useAppDispatch, useAppSelector } from '../../app/store';
+import { fetchLabels } from '../../app/store/labelsSlice';
+import { fetchNotes } from '../../app/store/notesSlice';
 import { acceptInvitation, declineInvitation, listPendingInvitations } from '../../features/notes/api';
+import { apiRequest } from '../api/http';
 import type { PendingInvitation } from '../types';
+import { Alert } from '../ui/Alert';
+import { Avatar, PermissionBadge } from '../ui/Badge';
+import { Brand } from '../ui/Brand';
+import { Button, IconButton, Spinner } from '../ui/Button';
+import { Icon, type IconName } from '../ui/Icon';
+import { Modal } from '../ui/Modal';
 
-function SidebarLink({ to, children, onClick }: { to: string; children: React.ReactNode; onClick?: () => void }) {
+const LIST_PATHS = ['/app/notes', '/app/shared'];
+
+function navClass(active: boolean): string {
+  return [
+    'flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors duration-200',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+    active ? 'bg-primary-soft text-primary-hover' : 'text-subtle hover:bg-muted hover:text-ink',
+  ].join(' ');
+}
+
+function SideLink({ to, icon, children, onNavigate }: { to: string; icon: IconName; children: React.ReactNode; onNavigate?: () => void }) {
   return (
-    <NavLink
-      to={to}
-      className={({ isActive }) =>
-        [
-          'block rounded-full px-4 py-2 border transition',
-          isActive
-            ? 'bg-amber-100 border-amber-200 text-slate-900'
-            : 'bg-transparent border-transparent hover:bg-slate-200/60 text-slate-800',
-        ].join(' ')
-      }
-      end
-      onClick={onClick}
-    >
+    <NavLink to={to} end onClick={onNavigate} className={({ isActive }) => navClass(isActive)}>
+      <Icon name={icon} className="h-[18px] w-[18px]" />
       {children}
     </NavLink>
   );
 }
 
-function HamburgerButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+function Sidebar({ onNavigate, onLogout }: { onNavigate?: () => void; onLogout: () => void }) {
+  const labels = useAppSelector((s) => s.labels.items);
+  const location = useLocation();
+  const [params] = useSearchParams();
+  const activeLabel = location.pathname === '/app/notes' ? params.get('label') : null;
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={open ? 'Close menu' : 'Open menu'}
-      aria-expanded={open}
-      className="rounded-full p-2 bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
-    >
-      <span className="block h-0.5 w-5 bg-slate-700" />
-      <span className="block h-0.5 w-5 bg-slate-700 mt-1" />
-      <span className="block h-0.5 w-5 bg-slate-700 mt-1" />
-    </button>
-  );
-}
+    <nav aria-label="Main" className="flex h-full flex-col gap-1">
+      <SideLink to="/app/notes" icon="note" onNavigate={onNavigate}>
+        My notes
+      </SideLink>
+      <SideLink to="/app/shared" icon="users" onNavigate={onNavigate}>
+        Shared with me
+      </SideLink>
+      <SideLink to="/app/labels" icon="tag" onNavigate={onNavigate}>
+        Manage labels
+      </SideLink>
 
-function SidebarNav({ onNavigate, labels }: { onNavigate?: () => void; labels: Label[] }) {
-  return (
-    <nav className="space-y-1">
-      <SidebarLink to="/app/notes" onClick={onNavigate}>Notes</SidebarLink>
-      <SidebarLink to="/app/shared" onClick={onNavigate}>Shared Notes</SidebarLink>
-      <SidebarLink to="/app/labels" onClick={onNavigate}>Labels</SidebarLink>
-
-      <div className="pt-3" />
-
-      <div className="px-2">
-        <div className="text-[11px] font-semibold tracking-wider text-slate-500">LABELS</div>
-      </div>
-
-      <div className="space-y-1">
+      <p className="mt-6 px-3 text-[11px] font-semibold uppercase tracking-wider text-faint">Labels</p>
+      <div className="mt-1 flex flex-col gap-0.5">
         {labels.length ? (
           labels.map((l) => (
-            <div
+            <NavLink
               key={l.label_id}
-              className="rounded-full px-4 py-2 text-sm bg-white border border-slate-200 text-slate-700"
+              to={`/app/notes?label=${encodeURIComponent(l.title)}`}
+              onClick={onNavigate}
+              className={() => navClass(activeLabel === l.title)}
               title={l.title}
             >
-              {l.title}
-            </div>
+              <span className="h-2 w-2 shrink-0 rounded-full bg-primary/60" aria-hidden="true" />
+              <span className="truncate">{l.title}</span>
+            </NavLink>
           ))
         ) : (
-          <div className="px-4 py-2 text-sm text-slate-500">No labels</div>
+          <p className="px-3 py-2 text-sm text-faint">No labels yet</p>
         )}
+      </div>
+
+      <div className="mt-auto pt-6">
+        <button
+          type="button"
+          onClick={onLogout}
+          className="flex h-10 w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm font-medium text-subtle transition-colors duration-200 hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <Icon name="logout" className="h-[18px] w-[18px]" />
+          Sign out
+        </button>
       </div>
     </nav>
   );
 }
 
-function SidebarPanel({
-  labels,
-  onNavigate,
-  onLogout,
-}: {
-  labels: Label[];
-  onNavigate?: () => void;
-  onLogout: () => void;
-}) {
+function SearchBox() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const onList = LIST_PATHS.includes(location.pathname);
+  const value = onList ? params.get('q') ?? '' : '';
+
+  const onChange = (q: string) => {
+    const next = new URLSearchParams(onList ? params : undefined);
+    if (q) next.set('q', q);
+    else next.delete('q');
+    const search = next.toString();
+    navigate({ pathname: onList ? location.pathname : '/app/notes', search: search ? `?${search}` : '' }, { replace: onList });
+  };
+
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center gap-3 px-2">
-        <div className="h-10 w-10 rounded-2xl bg-amber-200 flex items-center justify-center border border-amber-300">
-          <span className="text-sm font-semibold text-slate-900">FN</span>
-        </div>
-        <div className="leading-tight">
-          <div className="text-base font-semibold">Fundoo Notes</div>
-          <div className="text-xs text-slate-500">Smart Workspace</div>
-        </div>
-      </div>
-
-      <div className="mt-4">
-        <SidebarNav labels={labels} onNavigate={onNavigate} />
-      </div>
-
-      <div className="mt-auto pt-4">
-        <button
-          type="button"
-          onClick={onLogout}
-          className="w-full rounded-full px-4 py-2 font-semibold bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
-        >
-          Logout
-        </button>
-      </div>
+    <div className="relative w-full">
+      <Icon name="search" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+      <label htmlFor="global-search" className="sr-only">
+        Search notes
+      </label>
+      <input
+        id="global-search"
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Search notes"
+        className="h-11 w-full rounded-xl border border-transparent bg-muted pl-10 pr-4 text-sm text-ink placeholder:text-faint transition-colors duration-200 focus:border-primary focus:bg-white focus:outline-none focus:ring-4 focus:ring-primary/15"
+      />
     </div>
   );
 }
@@ -117,62 +122,52 @@ function SidebarPanel({
 export function AppLayout() {
   const { token, clear, user } = useAuth();
   const navigate = useNavigate();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const location = useLocation();
+  const dispatch = useAppDispatch();
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [labels, setLabels] = useState<Label[]>([]);
 
   const [invitesOpen, setInvitesOpen] = useState(false);
   const [invites, setInvites] = useState<PendingInvitation[]>([]);
   const [invitesLoading, setInvitesLoading] = useState(false);
   const [invitesError, setInvitesError] = useState<string | null>(null);
 
-  const onHamburger = useCallback(() => {
-    const isDesktop = window.matchMedia('(min-width: 768px)').matches;
-    if (isDesktop) {
-      setSidebarOpen((v) => !v);
-    } else {
-      setMobileMenuOpen((v) => !v);
-    }
+  useEffect(() => {
+    if (token) dispatch(fetchLabels(token));
+  }, [token, dispatch]);
+
+  // Close the mobile drawer on navigation and on Escape.
+  useEffect(() => setDrawerOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setDrawerOpen(false);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [drawerOpen]);
+
+  const onMenu = useCallback(() => {
+    if (window.matchMedia('(min-width: 1024px)').matches) setSidebarOpen((v) => !v);
+    else setDrawerOpen((v) => !v);
   }, []);
 
   const onLogout = useCallback(async () => {
     try {
       await apiRequest('/api/auth/logout/', { method: 'POST', token });
     } catch {
-      // ignore
+      // ignore: we sign out locally regardless
     } finally {
       clear();
       navigate('/login', { replace: true });
     }
   }, [token, clear, navigate]);
 
-  const loadLabels = useCallback(async () => {
-    if (!token) return;
-    try {
-      const data = await listLabels(token);
-      setLabels(data);
-    } catch {
-      setLabels([]);
-    }
-  }, [token]);
-
-  useEffect(() => {
-    void loadLabels();
-  }, [loadLabels]);
-
-  useEffect(() => {
-    const onRefresh = () => void loadLabels();
-    window.addEventListener('fundoo:labels-refresh', onRefresh);
-    return () => window.removeEventListener('fundoo:labels-refresh', onRefresh);
-  }, [loadLabels]);
-
   const loadInvites = useCallback(async () => {
     if (!token) return;
     setInvitesLoading(true);
     setInvitesError(null);
     try {
-      const data = await listPendingInvitations(token);
-      setInvites(data);
+      setInvites(await listPendingInvitations(token));
     } catch {
       setInvitesError('Failed to load invitations');
     } finally {
@@ -181,215 +176,127 @@ export function AppLayout() {
   }, [token]);
 
   useEffect(() => {
-    if (!token) return;
-    if (!invitesOpen) return;
     void loadInvites();
-  }, [invitesOpen, loadInvites, token]);
+  }, [loadInvites]);
 
-  useEffect(() => {
-    if (!token) return;
-    void loadInvites();
-  }, [token, loadInvites]);
-
-  useEffect(() => {
-    const onRefresh = () => {
-      void loadInvites();
-    };
-    window.addEventListener('fundoo:invites-refresh', onRefresh);
-    return () => window.removeEventListener('fundoo:invites-refresh', onRefresh);
-  }, [invitesOpen, loadInvites]);
-
-  const onAcceptInvite = useCallback(
-    async (inviteId: string) => {
+  const respond = useCallback(
+    async (inviteId: string, accept: boolean) => {
       if (!token) return;
       try {
-        await acceptInvitation(token, inviteId);
-        window.dispatchEvent(new Event('fundoo:notes-refresh'));
-        window.dispatchEvent(new Event('fundoo:invites-refresh'));
+        if (accept) {
+          await acceptInvitation(token, inviteId);
+          dispatch(fetchNotes(token));
+        } else {
+          await declineInvitation(token, inviteId);
+        }
+        await loadInvites();
       } catch {
-        setInvitesError('Failed to accept invitation');
+        setInvitesError(accept ? 'Failed to accept invitation' : 'Failed to decline invitation');
       }
     },
-    [token]
+    [token, dispatch, loadInvites]
   );
 
-  const onDeclineInvite = useCallback(
-    async (inviteId: string) => {
-      if (!token) return;
-      try {
-        await declineInvitation(token, inviteId);
-        window.dispatchEvent(new Event('fundoo:invites-refresh'));
-      } catch {
-        setInvitesError('Failed to decline invitation');
-      }
-    },
-    [token]
-  );
-
-  const userInitial = useMemo(() => {
-    const name = (user?.username || '').trim();
-    return name ? name[0]!.toUpperCase() : 'U';
-  }, [user?.username]);
+  const username = user?.username || 'User';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-slate-50 to-slate-100 text-slate-900">
-      <header className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200">
-        <div className="px-4 py-3">
-          <div className="w-full">
-            <div className="bg-white border border-slate-200 rounded-2xl px-3 py-2 shadow-sm flex items-center gap-3">
-              <HamburgerButton open={mobileMenuOpen || !sidebarOpen} onClick={onHamburger} />
-
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="h-10 w-10 rounded-2xl bg-amber-200 flex items-center justify-center border border-amber-300 shrink-0">
-                  <span className="text-sm font-semibold text-slate-900">FN</span>
-                </div>
-                <div className="leading-tight min-w-0">
-                  <div className="text-base font-semibold truncate">Fundoo Notes</div>
-                  <div className="text-xs text-slate-500 truncate">Smart Workspace</div>
-                </div>
-              </div>
-
-              <div className="hidden sm:flex flex-1">
-                <input
-                  className="w-full rounded-full bg-slate-100 border border-slate-200 px-4 py-2 text-sm text-slate-700 placeholder-slate-500 focus:outline-none"
-                  placeholder="Search notes..."
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setInvitesOpen(true)}
-                className="ml-auto rounded-full px-3 py-2 text-xs bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
-                title="Pending invitations"
-              >
-                Invites{invites.length ? ` (${invites.length})` : ''}
-              </button>
-
-              <button
-                type="button"
-                aria-label="User"
-                className="rounded-full h-10 w-10 bg-white border border-slate-200 flex items-center justify-center text-sm font-semibold text-slate-700"
-                title={user?.username || 'User'}
-              >
-                {userInitial}
-              </button>
-            </div>
+    <div className="min-h-screen bg-canvas text-ink">
+      <header className="sticky top-0 z-30 border-b border-line bg-white/80 backdrop-blur-lg">
+        <div className="flex h-16 items-center gap-3 px-4 lg:px-6">
+          <IconButton icon="menu" label="Toggle navigation" onClick={onMenu} aria-expanded={drawerOpen || sidebarOpen} />
+          <div className="hidden sm:block lg:w-52">
+            <Brand />
           </div>
+          <div className="mx-auto w-full max-w-2xl">
+            <SearchBox />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setInvitesOpen(true);
+              void loadInvites();
+            }}
+            aria-label={`Invitations${invites.length ? `, ${invites.length} pending` : ''}`}
+            title="Invitations"
+            className="relative inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl text-subtle transition-colors duration-200 hover:bg-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <Icon name="inbox" />
+            {invites.length ? (
+              <span className="absolute right-1 top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">
+                {invites.length}
+              </span>
+            ) : null}
+          </button>
+          <Avatar name={username} className="h-9 w-9 text-sm" />
         </div>
       </header>
 
-      <main className="px-4 pb-10">
-        <div className="w-full pt-6">
-          <div className="flex items-start gap-6">
-            <aside className={sidebarOpen ? 'hidden md:block w-72 shrink-0' : 'hidden md:hidden'}>
-              <div className="bg-white/90 backdrop-blur border border-slate-200 rounded-2xl p-4 shadow-sm">
-                <SidebarPanel labels={labels} onLogout={onLogout} />
-              </div>
-            </aside>
-
-            <div className="min-w-0 flex-1">
-              <Outlet />
-            </div>
-          </div>
-        </div>
-      </main>
-
-      {/* Mobile drawer */}
-      <div className={mobileMenuOpen ? 'md:hidden fixed inset-0 z-30' : 'md:hidden hidden'}>
-        <button
-          type="button"
-          aria-label="Close menu"
-          onClick={() => setMobileMenuOpen(false)}
-          className="absolute inset-0 bg-slate-900/20"
-        />
-        <aside className="absolute left-0 top-0 h-full w-80 bg-white border-r border-slate-200 p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm h-full">
-            <SidebarPanel
-              labels={labels}
-              onNavigate={() => setMobileMenuOpen(false)}
-              onLogout={onLogout}
-            />
-          </div>
+      <div className="flex">
+        <aside
+          className={[
+            'sticky top-16 hidden h-[calc(100vh-4rem)] w-64 shrink-0 overflow-y-auto border-r border-line bg-white/60 px-3 py-5',
+            sidebarOpen ? 'lg:block' : '',
+          ].join(' ')}
+        >
+          <Sidebar onLogout={onLogout} />
         </aside>
+
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+          <Outlet />
+        </main>
       </div>
 
-      {/* Invitations modal */}
-      <div className={invitesOpen ? 'fixed inset-0 z-40 flex items-center justify-center' : 'hidden'}>
-        <button
-          type="button"
-          aria-label="Close invitations"
-          onClick={() => setInvitesOpen(false)}
-          className="absolute inset-0 bg-slate-900/20"
-        />
-        <div className="relative w-[min(680px,calc(100vw-2rem))] bg-white border border-slate-200 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-            <div className="font-semibold">Pending Invitations</div>
-            <button
-              type="button"
-              onClick={() => setInvitesOpen(false)}
-              className="rounded-full px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 transition border border-slate-200"
-            >
-              Close
-            </button>
-          </div>
-
-          <div className="p-5">
-            {invitesError ? (
-              <div className="mb-4 rounded-xl px-4 py-3 text-sm bg-white border border-rose-200 shadow-sm">
-                <span className="font-semibold text-rose-700">Error:</span>{' '}
-                <span className="text-slate-800">{invitesError}</span>
-              </div>
-            ) : null}
-
-            {invitesLoading ? (
-              <div className="text-sm text-slate-600">Loading…</div>
-            ) : invites.length ? (
-              <div className="space-y-3">
-                {invites.map((inv) => (
-                  <div key={inv.id} className="rounded-xl border border-slate-200 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-semibold">{inv.note.title}</div>
-                        <div className="text-xs text-slate-500 mt-1">
-                          From: <span className="font-medium text-slate-700">{inv.from_user.username}</span>
-                        </div>
-                      </div>
-                      <span
-                        className={
-                          inv.permission === 'edit'
-                            ? 'rounded-full px-3 py-1 text-xs bg-rose-100 border border-rose-200 text-rose-700'
-                            : 'rounded-full px-3 py-1 text-xs bg-sky-100 border border-sky-200 text-sky-700'
-                        }
-                      >
-                        {inv.permission === 'edit' ? 'Can Edit' : 'Can View'}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 flex items-center gap-2 justify-end">
-                      <button
-                        type="button"
-                        onClick={() => void onAcceptInvite(inv.id)}
-                        className="rounded-full px-4 py-2 text-xs font-semibold bg-emerald-100 hover:bg-emerald-200 transition border border-emerald-200"
-                      >
-                        Accept
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void onDeclineInvite(inv.id)}
-                        className="rounded-full px-4 py-2 text-xs font-semibold bg-rose-100 hover:bg-rose-200 transition border border-rose-200"
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm text-slate-600">No pending invitations.</div>
-            )}
-          </div>
+      {drawerOpen ? (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setDrawerOpen(false)} aria-hidden="true" />
+          <aside className="animate-rise absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-white px-3 py-4 shadow-lift">
+            <div className="mb-4 flex items-center justify-between px-2">
+              <Brand />
+              <IconButton icon="x" label="Close navigation" onClick={() => setDrawerOpen(false)} />
+            </div>
+            <Sidebar onNavigate={() => setDrawerOpen(false)} onLogout={onLogout} />
+          </aside>
         </div>
-      </div>
+      ) : null}
+
+      <Modal open={invitesOpen} title="Invitations" onClose={() => setInvitesOpen(false)}>
+        {invitesError ? <Alert className="mb-4">{invitesError}</Alert> : null}
+        {invitesLoading && !invites.length ? (
+          <div className="flex items-center gap-2 py-4 text-sm text-subtle">
+            <Spinner /> Loading…
+          </div>
+        ) : invites.length ? (
+          <ul className="space-y-3">
+            {invites.map((inv) => (
+              <li key={inv.id} className="rounded-xl border border-line p-4">
+                <div className="flex items-start gap-3">
+                  <Avatar name={inv.from_user.username} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-ink">{inv.note.title}</p>
+                    <p className="mt-0.5 text-xs text-subtle">
+                      Shared by <span className="font-medium text-ink">{inv.from_user.username}</span>
+                    </p>
+                  </div>
+                  <PermissionBadge permission={inv.permission} />
+                </div>
+                <div className="mt-4 flex justify-end gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => void respond(inv.id, false)}>
+                    Decline
+                  </Button>
+                  <Button size="sm" icon="check" onClick={() => void respond(inv.id, true)}>
+                    Accept
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="py-6 text-center">
+            <p className="font-semibold text-ink">You're all caught up</p>
+            <p className="mt-1 text-sm text-subtle">New share invitations will appear here.</p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
