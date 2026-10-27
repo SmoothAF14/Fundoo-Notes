@@ -2,70 +2,80 @@ import { ApiError } from './ApiError';
 
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
-const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
+
+let onUnauthorized: (() => void) | null = null;
+
+/** Called when a request comes back 401 (the session cookie expired or was revoked). */
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler;
+}
 
 function buildRequestUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
-  if (!API_BASE_URL) return path;
-
-  // In development we rely on CRA's `proxy` to avoid CORS.
-  if (process.env.NODE_ENV === 'development') return path;
-
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return `${API_BASE_URL}${normalizedPath}`;
+  // In development Vite proxies API paths to Django, so requests stay same-origin.
+  if (!API_BASE_URL || import.meta.env.DEV) return path;
+  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-function isJsonResponse(contentType: string | null): boolean {
-  return !!contentType && contentType.toLowerCase().includes('application/json');
+function humanize(field: string): string {
+  const words = field.replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /** DRF errors: {"detail": "..."} or field errors like {"username": "..."} / {"email": ["..."]}. */
 function errorMessageFrom(body: Json): string | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
-  const { detail, ...fields } = body as Record<string, unknown>;
-  for (const value of [detail, ...Object.values(fields)]) {
+  for (const [key, value] of Object.entries(body)) {
     const first = Array.isArray(value) ? value[0] : value;
-    if (typeof first === 'string' && first) return first;
+    if (typeof first !== 'string' || !first) continue;
+    // Generic DRF messages don't say which field they are about.
+    const generic = /^(This field|Ensure this field|This value)/i.test(first);
+    return generic && key !== 'detail' && key !== 'non_field_errors' ? `${humanize(key)}: ${first}` : first;
   }
   return null;
 }
 
-export async function apiRequest<T = unknown>(
-  path: string,
-  options: RequestInit & { token?: string | null } = {}
-): Promise<T> {
-  const { token, headers, ...rest } = options;
+const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS'];
 
-  const mergedHeaders: HeadersInit = {
-    ...(headers ?? {}),
-  };
+function readCookie(name: string): string | null {
+  const match = document.cookie.split('; ').find((c) => c.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
+}
 
-  if (!(mergedHeaders as Record<string, string>)['Content-Type'] && rest.body) {
-    (mergedHeaders as Record<string, string>)['Content-Type'] = 'application/json';
+/**
+ * The session is an httpOnly cookie the browser sends for us; writes echo Django's CSRF cookie
+ * in X-CSRFToken so another site can't make requests on the user's behalf.
+ */
+export async function apiRequest<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+  const { headers, ...rest } = options;
+  const mergedHeaders: Record<string, string> = { ...(headers as Record<string, string> | undefined) };
+  if (rest.body && !mergedHeaders['Content-Type']) mergedHeaders['Content-Type'] = 'application/json';
+  if (!SAFE_METHODS.includes((rest.method || 'GET').toUpperCase())) {
+    const csrf = readCookie('csrftoken');
+    if (csrf) mergedHeaders['X-CSRFToken'] = csrf;
   }
 
-  if (token) {
-    (mergedHeaders as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await fetch(buildRequestUrl(path), { credentials: 'include', ...rest, headers: mergedHeaders });
+  } catch {
+    throw new ApiError("Can't reach the server. Check that it's running and try again.", 0, null);
   }
 
-  const res = await fetch(buildRequestUrl(path), {
-    ...rest,
-    headers: mergedHeaders,
-  });
+  if (res.status === 204) return undefined as T;
 
-  if (res.status === 204) {
-    return undefined as T;
-  }
-
-  const contentType = res.headers.get('content-type');
-  const body: Json = isJsonResponse(contentType) ? await res.json() : await res.text();
+  const isJson = (res.headers.get('content-type') || '').toLowerCase().includes('application/json');
+  const body: Json = isJson ? await res.json() : await res.text();
 
   if (!res.ok) {
+    if (res.status === 401) {
+      onUnauthorized?.();
+      throw new ApiError('Your session has expired. Please sign in again.', 401, body);
+    }
     // Non-JSON error bodies (e.g. Django's HTML debug page) are never shown to the user.
-    const fallback =
-      res.status >= 500 ? `Server error (${res.status}). Please try again.` : `Request failed (${res.status})`;
-    const message = errorMessageFrom(body) || fallback;
-    throw new ApiError(message, res.status, body);
+    const fallback = res.status >= 500 ? `Server error (${res.status}). Please try again.` : `Request failed (${res.status})`;
+    throw new ApiError(errorMessageFrom(body) || fallback, res.status, body);
   }
 
   return body as T;

@@ -11,9 +11,11 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+import sys
 
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -25,12 +27,15 @@ load_dotenv(BASE_DIR / '.env')
 
 
 
-SECRET_KEY = os.environ.get(
-    'DJANGO_SECRET_KEY',
-    'django-insecure-0g*f7n+g6jm=6k7!g=*8%d1o()$teit!*0()%z)y4&jobeak0e',
-)
+# Safe by default: DEBUG is off unless DJANGO_DEBUG says otherwise (config/.env does for local dev),
+# and a real SECRET_KEY is required whenever DEBUG is off. The key also signs the login JWTs.
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() in ('1', 'true', 'yes', 'on')
 
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes', 'on')
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '')
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured('Set DJANGO_SECRET_KEY (or DJANGO_DEBUG=True for local development).')
+    SECRET_KEY = 'django-insecure-local-development-only'
 
 _allowed_hosts_raw = os.environ.get('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost,testserver')
 ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_raw.split(',') if h.strip()]
@@ -71,6 +76,9 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'users.authentication.JWTAuthentication',
     ),
+    # Throttles key on REMOTE_ADDR unless you are behind N trusted proxies; otherwise a spoofed
+    # X-Forwarded-For header would give every request a fresh rate-limit bucket.
+    'NUM_PROXIES': int(os.environ.get('DJANGO_NUM_PROXIES', '0')),
     'DEFAULT_THROTTLE_CLASSES': (
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
@@ -139,11 +147,15 @@ DATABASES = {
 }
 
 # Caching
+# Shared Redis cache (the same Redis Celery uses, separate DB) so rate limits and pending sign-ups
+# are shared by every worker process and survive dev-server reloads. Tests use an in-memory cache.
+RUNNING_TESTS = len(sys.argv) > 1 and sys.argv[1] == 'test'
 CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'fundoo-notes-cache',
-    }
+    'default': (
+        {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'fundoo-notes-tests'}
+        if RUNNING_TESTS
+        else {'BACKEND': 'django.core.cache.backends.redis.RedisCache', 'LOCATION': os.environ.get('CACHE_URL', 'redis://localhost:6379/1')}
+    )
 }
 
 
@@ -210,3 +222,14 @@ _default_email_backend = (
     else 'django.core.mail.backends.console.EmailBackend'
 )
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', _default_email_backend)
+
+# ---- Production hardening (only applies with DEBUG off) ----
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = os.environ.get('DJANGO_SECURE_SSL_REDIRECT', 'True').lower() in ('1', 'true', 'yes', 'on')
+    SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_HSTS_SECONDS', '31536000'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'same-origin'

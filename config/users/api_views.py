@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from random import randint
 
 from django.contrib.auth import login as django_login
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
+from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
@@ -18,15 +18,17 @@ from rest_framework.views import APIView
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
-from .serializers import LoginSerializer, RegisterSerializer
-from .jwt_utils import create_access_token
+from .serializers import LoginSerializer
+from .auth_cookie import clear_auth_cookie, signed_in_response, user_payload
+from .otp import OTP_TTL_SECONDS, check_pending_otp, consume_user_otp, issue_user_otp, new_code
 from .tasks import send_otp_email
 
 
 User = get_user_model()
 
+INVALID_CODE = {"detail": "Invalid or expired code. Request a new one if needed."}
 
-OTP_TTL_SECONDS = 5 * 60
+
 
 
 class OTPRequestResponseSerializer(serializers.Serializer):
@@ -52,6 +54,15 @@ class RegisterOtpRequestSerializer(serializers.Serializer):
         value = value.strip()
         return value or None
 
+    def validate(self, attrs):
+        # Apply settings.AUTH_PASSWORD_VALIDATORS (length, common, numeric, similarity).
+        candidate = User(username=attrs.get('username', ''), email=attrs.get('email', ''))
+        try:
+            validate_password(attrs['password'], user=candidate)
+        except ValidationError as exc:
+            raise serializers.ValidationError({'password': list(exc.messages)})
+        return attrs
+
 
 class RegisterOtpVerifySerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -73,31 +84,6 @@ class AuthTokenResponseSerializer(serializers.Serializer):
     username = serializers.CharField()
     email = serializers.EmailField(required=False, allow_blank=True)
     phone_number = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    token = serializers.CharField()
-
-
-class RegisterAPIView(APIView):
-    permission_classes = [AllowAny]
-    throttle_scope = 'auth'
-
-    @extend_schema(request=RegisterSerializer, responses={201: AuthTokenResponseSerializer})
-    def post(self, request):
-        serializer = RegisterSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        user = serializer.save()
-        token = create_access_token(user)
-
-        return Response(
-            {
-                "id": str(user.id),
-                "username": user.username,
-                "email": user.email,
-                "phone_number": user.phone_number,
-                "token": token,
-            },
-            status=status.HTTP_201_CREATED,
-        )
 
 
 class LoginAPIView(APIView):
@@ -124,11 +110,7 @@ class LoginAPIView(APIView):
         if not (user.email or '').strip():
             return Response({"detail": "No email is set for this account"}, status=status.HTTP_400_BAD_REQUEST)
 
-        otp = str(randint(100000, 999999))
-        user.otp = otp
-        user.otp_created_at = timezone.now()
-        user.save(update_fields=["otp", "otp_created_at"])
-
+        otp = issue_user_otp(user, 'login')
         send_otp_email.delay(user.email, otp)
 
         return Response(
@@ -138,12 +120,22 @@ class LoginAPIView(APIView):
 
 
 class LogoutAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    # Allowed without a valid session so an expired cookie can still be cleared.
+    permission_classes = [AllowAny]
 
     @extend_schema(request=None, responses={204: OpenApiResponse(description='Logged out')})
     def post(self, request):
-        # JWT logout is client-side: the frontend clears the token.
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return clear_auth_cookie(Response(status=status.HTTP_204_NO_CONTENT))
+
+
+class MeAPIView(APIView):
+    """The signed-in user; the frontend calls it on load to confirm the session cookie is still valid."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: AuthTokenResponseSerializer})
+    def get(self, request):
+        return Response(user_payload(request.user))
 
 
 def _cache_key_pending_registration(email: str) -> str:
@@ -186,7 +178,7 @@ class RegisterRequestOtpAPIView(APIView):
         if phone and User.objects.filter(phone_number=phone, is_verified=True).exists():
             raise serializers.ValidationError({"phone_number": "Phone number already exists"})
 
-        otp = str(randint(100000, 999999))
+        otp = new_code()
         created_at = timezone.now()
 
         cache.set(
@@ -240,8 +232,13 @@ class RegisterVerifyOtpAPIView(APIView):
             cache.delete(_cache_key_pending_registration(email))
             return Response({"detail": "OTP expired. Please register again."}, status=status.HTTP_400_BAD_REQUEST)
 
-        expected_otp = (pending.get('otp') or '').strip()
-        if not expected_otp or expected_otp != entered_otp:
+        match = check_pending_otp(pending, entered_otp)
+        if match is None:
+            cache.delete(_cache_key_pending_registration(email))
+            return Response({"detail": "Too many wrong codes. Please register again."}, status=status.HTTP_400_BAD_REQUEST)
+        if not match:
+            remaining = max(1, int((expires_at - timezone.now()).total_seconds()))
+            cache.set(_cache_key_pending_registration(email), pending, timeout=remaining)
             return Response({"detail": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
 
         username = (pending.get('username') or '').strip()
@@ -269,17 +266,7 @@ class RegisterVerifyOtpAPIView(APIView):
 
         cache.delete(_cache_key_pending_registration(email))
 
-        token = create_access_token(user)
-        return Response(
-            {
-                "id": str(user.id),
-                "username": user.username,
-                "email": user.email,
-                "phone_number": user.phone_number,
-                "token": token,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+        return signed_in_response(request, user, status.HTTP_201_CREATED)
 
 
 class LoginRequestOtpAPIView(APIView):
@@ -304,11 +291,7 @@ class LoginRequestOtpAPIView(APIView):
         if not (user.email or '').strip():
             return Response({"detail": "No email is set for this account"}, status=status.HTTP_400_BAD_REQUEST)
 
-        otp = str(randint(100000, 999999))
-        user.otp = otp
-        user.otp_created_at = timezone.now()
-        user.save(update_fields=["otp", "otp_created_at"])
-
+        otp = issue_user_otp(user, 'login')
         send_otp_email.delay(user.email, otp)
 
         return Response(
@@ -329,39 +312,70 @@ class LoginVerifyOtpAPIView(APIView):
         username = (serializer.validated_data.get('username') or '').strip()
         entered_otp = (serializer.validated_data.get('otp') or '').strip()
 
+        # Same answer for unknown users, wrong, expired or used-up codes.
         user = User.objects.filter(username=username).first()
-        if not user:
-            return Response({"detail": "User not found"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not user.otp_created_at:
-            return Response({"detail": "OTP expired. Please login again."}, status=status.HTTP_400_BAD_REQUEST)
-
-        expires_at = user.otp_created_at + timedelta(seconds=OTP_TTL_SECONDS)
-        if expires_at <= timezone.now():
-            user.otp = None
-            user.otp_created_at = None
-            user.save(update_fields=["otp", "otp_created_at"])
-            return Response({"detail": "OTP expired. Please login again."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not user.otp or user.otp != entered_otp:
-            return Response({"detail": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
-
-        user.otp = None
-        user.otp_created_at = None
-        user.save(update_fields=["otp", "otp_created_at"])
-
-        token = create_access_token(user)
+        if not consume_user_otp(user, 'login', entered_otp):
+            return Response(INVALID_CODE, status=status.HTTP_400_BAD_REQUEST)
 
         # Optional: establish a browser session too
         django_login(request, user)
+        return signed_in_response(request, user)
 
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6)
+    new_password = serializers.CharField(write_only=True)
+
+
+class PasswordResetRequestOtpAPIView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = 'auth'
+
+    @extend_schema(request=PasswordResetRequestSerializer, responses={200: OTPRequestResponseSerializer})
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email'].strip()
+
+        user = User.objects.filter(email__iexact=email, is_verified=True).first()
+        if user:
+            send_otp_email.delay(user.email, issue_user_otp(user, 'reset'))
+
+        # Same answer either way, so this endpoint can't be used to discover accounts.
         return Response(
-            {
-                "id": str(user.id),
-                "username": user.username,
-                "email": user.email,
-                "phone_number": user.phone_number,
-                "token": token,
-            },
+            {"detail": "If an account exists for that email, we sent a reset code.", "otp_expires_in_seconds": OTP_TTL_SECONDS},
             status=status.HTTP_200_OK,
         )
+
+
+class PasswordResetAPIView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = 'auth'
+
+    @extend_schema(request=PasswordResetSerializer, responses={200: OpenApiResponse(description='Password changed')})
+    def post(self, request):
+        serializer = PasswordResetSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email'].strip()
+        entered_otp = serializer.validated_data['otp'].strip()
+
+        user = User.objects.filter(email__iexact=email, is_verified=True).first()
+        new_password = serializer.validated_data['new_password']
+        if user:
+            try:
+                validate_password(new_password, user=user)
+            except ValidationError as exc:
+                return Response({"new_password": list(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not consume_user_otp(user, 'reset', entered_otp):
+            return Response(INVALID_CODE, status=status.HTTP_400_BAD_REQUEST)
+
+        # Changing the password also invalidates every token issued before (see jwt_utils).
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+        return Response({"detail": "Password changed. You can sign in now."}, status=status.HTTP_200_OK)

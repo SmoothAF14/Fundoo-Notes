@@ -1,18 +1,18 @@
-import { useAppDispatch, useAppSelector } from '../store';
-import { setAuth, clearAuthState } from '../store/authSlice';
-import type { AuthTokenResponse } from '../../shared/types';
+import { useCallback } from 'react';
 
-/** Auth state from the Redux store: { token, user, isAuthenticated, setAuth, clear } */
+import { useAppDispatch, useAppSelector } from '@/app/store';
+import { clearAuthState, setAuth } from '@/app/store/authSlice';
+import type { AuthUser } from '@/shared/types';
+
+/** Auth state from the Redux store. The session itself is an httpOnly cookie, so only the profile is here. */
 export function useAuth() {
   const dispatch = useAppDispatch();
-  const token = useAppSelector((s) => s.auth.token);
   const user = useAppSelector((s) => s.auth.user);
 
   return {
-    token,
     user,
-    isAuthenticated: !!token,
-    setAuth: (auth: AuthTokenResponse) => dispatch(setAuth(auth)),
-    clear: () => dispatch(clearAuthState()),
+    isAuthenticated: !!user,
+    setAuth: useCallback((u: AuthUser) => dispatch(setAuth(u)), [dispatch]),
+    clear: useCallback(() => dispatch(clearAuthState()), [dispatch]),
   };
 }

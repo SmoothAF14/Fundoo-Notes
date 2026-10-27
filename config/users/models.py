@@ -9,6 +9,9 @@ class CustomUser(AbstractUser):
 	phone_number = models.CharField(max_length=15, unique=True, null=True, blank=True)
 	otp = models.CharField(max_length=6, null=True, blank=True)
 	otp_created_at = models.DateTimeField(null=True, blank=True)
+	# Which flow the current code belongs to ('login' / 'reset'), so a code can't cross flows.
+	otp_purpose = models.CharField(max_length=16, null=True, blank=True)
+	otp_attempts = models.PositiveSmallIntegerField(default=0)
 	is_verified = models.BooleanField(default=False)
 
 	@property

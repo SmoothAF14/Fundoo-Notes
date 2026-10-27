@@ -7,8 +7,9 @@ from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from django.contrib.auth.hashers import make_password
 from datetime import timedelta
-from random import randint
+import secrets
 
+from .otp import consume_user_otp, issue_user_otp
 from .tasks import send_otp_email
 
 
@@ -55,7 +56,7 @@ def register(request):
             return redirect('register')
 
         # Generate OTP
-        otp = str(randint(100000, 999999))
+        otp = f"{secrets.randbelow(1_000_000):06d}"
 
         # Store pending registration data in the session.
         # Create the DB user only after OTP verification succeeds.
@@ -105,11 +106,7 @@ def login_view(request):
                     return redirect('login')
 
                 # Generate new OTP for login
-                otp = str(randint(100000, 999999))
-
-                user.otp = otp
-                user.otp_created_at = timezone.now()
-                user.save()
+                otp = issue_user_otp(user, 'login')
 
                 # Store user id in session temporarily
                 request.session['login_user_id'] = str(user.user_id)
@@ -243,7 +240,7 @@ def login_otp_verify(request):
 
         entered_otp = request.POST['otp'].strip()
 
-        if user.otp and user.otp == entered_otp:
+        if consume_user_otp(user, 'login', entered_otp):
             request.session.pop('login_user_id', None)
             login(request, user)
             return redirect('dashboard')

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f3efe6" />
+    <meta name="description" content="Fundoo Notes — think it, keep it." />
+    <link rel="apple-touch-icon" href="/logo192.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <script>
+      // Apply the saved theme before first paint to avoid a light/dark flash.
+      try {
+        if (localStorage.getItem('fundoo.theme') === 'dark') document.documentElement.classList.add('dark');
+      } catch (e) {}
+    </script>
+    <title>Fundoo Notes</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

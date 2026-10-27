@@ -1,27 +1,30 @@
-type OtpSession = {
-  identifier: string;
-  expiresAtMs: number;
-};
+type OtpKind = 'register' | 'login';
+type OtpSession = { identifier: string; expiresAtMs: number };
 
-function key(kind: 'register' | 'login', identifier: string): string {
-  return `fundoo.otp.${kind}.${identifier.trim().toLowerCase()}`;
-}
+const key = (kind: OtpKind, identifier: string) => `fundoo.otp.${kind}.${identifier.trim().toLowerCase()}`;
 
-export function saveOtpSession(kind: 'register' | 'login', identifier: string, expiresAtMs: number): void {
-  const value: OtpSession = { identifier, expiresAtMs };
-  sessionStorage.setItem(key(kind, identifier), JSON.stringify(value));
-}
-
-export function loadOtpSession(kind: 'register' | 'login', identifier: string): OtpSession | null {
-  const raw = sessionStorage.getItem(key(kind, identifier));
-  if (!raw) return null;
+// sessionStorage can throw (private mode, blocked storage); the OTP flow then just shows "expired".
+export function saveOtpSession(kind: OtpKind, identifier: string, expiresAtMs: number): void {
   try {
-    return JSON.parse(raw) as OtpSession;
+    sessionStorage.setItem(key(kind, identifier), JSON.stringify({ identifier, expiresAtMs } satisfies OtpSession));
+  } catch {
+    // ignore
+  }
+}
+
+export function loadOtpSession(kind: OtpKind, identifier: string): OtpSession | null {
+  try {
+    const raw = sessionStorage.getItem(key(kind, identifier));
+    return raw ? (JSON.parse(raw) as OtpSession) : null;
   } catch {
     return null;
   }
 }
 
-export function clearOtpSession(kind: 'register' | 'login', identifier: string): void {
-  sessionStorage.removeItem(key(kind, identifier));
+export function clearOtpSession(kind: OtpKind, identifier: string): void {
+  try {
+    sessionStorage.removeItem(key(kind, identifier));
+  } catch {
+    // ignore
+  }
 }

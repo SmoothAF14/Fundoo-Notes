@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { verifyLoginOtp } from '../api';
@@ -17,7 +17,7 @@ export function LoginOtpVerifyPage() {
       verify={verify}
       subtitle={
         <>
-          Enter the sign-in code we emailed to <span className="font-semibold text-ink">{username}</span>.
+          Enter the sign-in code we emailed to the account <span className="font-medium text-foreground">{username}</span>.
         </>
       }
     />

@@ -26,7 +26,7 @@ class LabelsAPIView(APIView):
 
     @extend_schema(request=LabelCreateSerializer, responses={201: LabelSerializer})
     def post(self, request):
-        serializer = LabelCreateSerializer(data=request.data)
+        serializer = LabelCreateSerializer(data=request.data, context={'user': request.user})
         serializer.is_valid(raise_exception=True)
 
         label = Label.objects.create(
@@ -46,6 +46,15 @@ class LabelDetailAPIView(APIView):
     @extend_schema(responses={200: LabelSerializer})
     def get(self, request, label_id):
         label = self.get_object(request, label_id)
+        return Response(LabelSerializer(label).data, status=status.HTTP_200_OK)
+
+    @extend_schema(request=LabelCreateSerializer, responses={200: LabelSerializer})
+    def patch(self, request, label_id):
+        label = self.get_object(request, label_id)
+        serializer = LabelCreateSerializer(data=request.data, context={'user': request.user, 'instance': label})
+        serializer.is_valid(raise_exception=True)
+        label.title = serializer.validated_data['title']
+        label.save(update_fields=['title'])
         return Response(LabelSerializer(label).data, status=status.HTTP_200_OK)
 
     @extend_schema(request=None, responses={204: OpenApiResponse(description='Deleted')})

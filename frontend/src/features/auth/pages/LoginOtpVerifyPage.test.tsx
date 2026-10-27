@@ -1,8 +1,9 @@
-import React from 'react';
-import { Route, Routes } from 'react-router-dom';
 import { act, fireEvent, screen } from '@testing-library/react';
+import { Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { renderWithProviders } from '../../../test-utils';
+import { renderWithProviders, storeState } from '@/test-utils';
+
 import { saveOtpSession } from '../otpStorage';
 import { LoginOtpVerifyPage } from './LoginOtpVerifyPage';
 
@@ -11,33 +12,28 @@ function renderPage() {
     <Routes>
       <Route path="/auth/login/verify" element={<LoginOtpVerifyPage />} />
     </Routes>,
-    { route: '/auth/login/verify?u=alice', state: { auth: { token: null, user: null } } }
+    { route: '/auth/login/verify?u=alice', state: { ...storeState(), auth: { user: null } } }
   );
 }
 
 describe('LoginOtpVerifyPage', () => {
-  beforeEach(() => {
-    sessionStorage.clear();
-    jest.useFakeTimers();
-  });
-  afterEach(() => jest.useRealTimers());
+  beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: false }));
+  afterEach(() => vi.useRealTimers());
 
   it('allows submitting a code while the OTP is still valid', () => {
     saveOtpSession('login', 'alice', Date.now() + 60_000);
     renderPage();
-
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '123456' } });
-
+    fireEvent.change(screen.getByLabelText('6-digit code'), { target: { value: '123456' } });
     expect(screen.getByRole('button', { name: /verify/i })).toBeEnabled();
   });
 
   it('disables verification once the countdown reaches zero, without any user interaction', () => {
     saveOtpSession('login', 'alice', Date.now() + 2_000);
     renderPage();
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '123456' } });
+    fireEvent.change(screen.getByLabelText('6-digit code'), { target: { value: '123456' } });
 
     act(() => {
-      jest.advanceTimersByTime(3_000);
+      vi.advanceTimersByTime(3_000);
     });
 
     expect(screen.getByRole('button', { name: /verify/i })).toBeDisabled();

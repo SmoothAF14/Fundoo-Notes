@@ -1,46 +1,41 @@
-# Getting Started with Create React App
+# Fundoo Notes — frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+React 19 + TypeScript, built with Vite. Tailwind CSS v4, shadcn/ui (Radix), Motion, Redux Toolkit, React Router.
 
-## Available Scripts
+## Run it
 
-In the project directory, you can run:
+The frontend talks to the Django API in `../config`. For a full local setup run all three:
 
-### `npm start`
+```bash
+# 1. API (port 8000)
+cd ../config && ../venv/Scripts/python.exe manage.py runserver 8000
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+# 2. Email worker — sign-in and sign-up codes are sent by Celery (Redis on :6379)
+cd ../config && ../venv/Scripts/celery.exe -A config worker --pool=solo -l info
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+# 3. Frontend (port 3000)
+npm install
+npm run dev
+```
 
-### `npm test`
+In development Vite proxies `/api`, `/notes/api` and `/labels/api` to `http://localhost:8000`.
+For a production build set `VITE_API_BASE_URL` (see `.env`).
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Scripts
 
-### `npm run build`
+| Command             | What it does                              |
+| ------------------- | ----------------------------------------- |
+| `npm run dev`       | Dev server on http://localhost:3000       |
+| `npm run build`     | Type-check and build to `dist/`           |
+| `npm run preview`   | Serve the production build                |
+| `npm test`          | Run the Vitest suite once                 |
+| `npm run lint`      | ESLint with zero warnings allowed         |
+| `npm run typecheck` | `tsc --noEmit`                            |
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## Layout
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
-
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
-
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
+- `src/app` — routes, Redux store, auth hooks
+- `src/shell` — signed-in layout: sidebar, top bar, invitations
+- `src/features/*` — landing, auth, notes, labels, profile
+- `src/components/ui` — shadcn/ui primitives and the halftone wordmark footer
+- `src/index.css` — design tokens for the dark ("night") and light ("paper") themes

@@ -8,6 +8,7 @@ from uuid import UUID
 from celery import current_app
 
 from notes.models import Note, NoteCollaborator
+from notes.serializers import visible_email
 from notes.tasks import send_note_invite_email
 from fastapi_app.schemas.collaborators import (
     CollaboratorInviteRequest,
@@ -46,7 +47,7 @@ def get_note_collaborators(
             detail="Note not found"
         )
     
-    # Check if user can view this note
+    # Check if user can view this note (a trashed note is private to its owner)
     if note.created_by_id != current_user.id:
         # Check if user is a collaborator with accepted status
         collab = NoteCollaborator.objects.filter(
@@ -54,7 +55,7 @@ def get_note_collaborators(
             user=current_user,
             status=NoteCollaborator.Status.ACCEPTED
         ).first()
-        if not collab:
+        if not collab or note.trashed_at is not None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have access to this note"
@@ -75,14 +76,14 @@ def get_note_collaborators(
             user={
                 "id": str(c.user.id),
                 "username": c.user.username,
-                "email": c.user.email or ""
+                "email": visible_email(c.user, current_user, note)
             },
             permission=c.permission,
             status=c.status,
             invited_by={
                 "id": str(c.invited_by.id),
                 "username": c.invited_by.username,
-                "email": c.invited_by.email or ""
+                "email": visible_email(c.invited_by, current_user, note)
             },
             created_at=c.created_at,
             responded_at=c.responded_at
@@ -94,7 +95,7 @@ def get_note_collaborators(
         owner={
             "id": str(note.created_by.id),
             "username": note.created_by.username,
-            "email": note.created_by.email or ""
+            "email": visible_email(note.created_by, current_user, note)
         },
         collaborators=collab_list
     )

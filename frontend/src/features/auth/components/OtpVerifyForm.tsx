@@ -1,30 +1,30 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import { ArrowLeft, Clock } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { useAuth } from '../../../app/providers/useAuth';
-import { ApiError } from '../../../shared/api/ApiError';
-import type { AuthTokenResponse } from '../../../shared/types';
-import { Alert } from '../../../shared/ui/Alert';
-import { Button } from '../../../shared/ui/Button';
-import { Field, inputClass } from '../../../shared/ui/Field';
-import { Icon } from '../../../shared/ui/Icon';
+import { useAuth } from '@/app/providers/useAuth';
+import { Button } from '@/components/ui/button';
+import type { AuthUser } from '@/shared/types';
+
 import { clearOtpSession, loadOtpSession } from '../otpStorage';
+import { AuthLayout } from './AuthLayout';
+import { FormAlert } from './FormAlert';
+import { splitApiError } from '../apiErrors';
+import { FormField } from './FormField';
 import { formatSeconds, useCountdown } from './OtpTimer';
-import { AuthShell } from './AuthShell';
 
 type OtpVerifyFormProps = {
   kind: 'login' | 'register';
   identifier: string;
   subtitle: React.ReactNode;
   backTo: string;
-  verify: (otp: string) => Promise<AuthTokenResponse>;
+  verify: (otp: string) => Promise<AuthUser>;
 };
 
-/** Shared OTP step for both login and registration. */
+/** Shared 6-digit code step for sign in and sign up. */
 export function OtpVerifyForm({ kind, identifier, subtitle, backTo, verify }: OtpVerifyFormProps) {
   const navigate = useNavigate();
   const { setAuth } = useAuth();
-
   const session = useMemo(() => (identifier ? loadOtpSession(kind, identifier) : null), [kind, identifier]);
   const secondsLeft = useCountdown(session?.expiresAtMs ?? null);
   const expired = secondsLeft === 0;
@@ -33,85 +33,71 @@ export function OtpVerifyForm({ kind, identifier, subtitle, backTo, verify }: Ot
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const onSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      setError(null);
-      setLoading(true);
-      try {
-        const res = await verify(otp.trim());
-        clearOtpSession(kind, identifier);
-        setAuth(res);
-        navigate('/app/notes', { replace: true });
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Something went wrong');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [verify, otp, kind, identifier, setAuth, navigate]
+  const back = (
+    <Link to={backTo} className="inline-flex items-center gap-1.5 font-medium text-foreground/80 hover:text-foreground">
+      <ArrowLeft className="size-4" /> Back
+    </Link>
   );
 
   if (!identifier) {
     return (
-      <AuthShell title="Session expired" subtitle="We couldn't find your verification request.">
-        <Link to={backTo} className="font-semibold text-primary hover:text-primary-hover">
-          Start again
-        </Link>
-      </AuthShell>
+      <AuthLayout eyebrow="Verification" title="Start again." subtitle="We couldn’t find your verification request." footer={back}>
+        <Button asChild size="lg" className="w-full">
+          <Link to={backTo}>Go back</Link>
+        </Button>
+      </AuthLayout>
     );
   }
 
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (otp.length !== 6) return setError('Enter the 6-digit code from the email.');
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await verify(otp);
+      clearOtpSession(kind, identifier);
+      setAuth(res);
+      navigate('/notes', { replace: true });
+    } catch (err) {
+      const { fields, general } = splitApiError(err, ['otp'] as const);
+      setError(fields.otp ?? general);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <AuthShell
-      title="Check your email"
-      subtitle={subtitle}
-      footer={
-        <Link to={backTo} className="inline-flex items-center gap-1.5 font-semibold text-subtle hover:text-ink">
-          <Icon name="arrowLeft" className="h-4 w-4" /> Back
-        </Link>
-      }
-    >
-      <div className="mb-6 flex items-center gap-2 text-sm text-subtle" aria-live="polite">
-        <Icon name="clock" className="h-4 w-4" />
-        {expired ? (
-          <span>Code expired</span>
-        ) : (
-          <span>
-            Code expires in <span className="font-semibold tabular-nums text-ink">{formatSeconds(secondsLeft)}</span>
-          </span>
-        )}
-      </div>
-
-      {error ? <Alert className="mb-5">{error}</Alert> : null}
+    <AuthLayout eyebrow="Verification" title="Check your inbox." subtitle={subtitle} footer={back}>
+      <p className="text-[13px] font-semibold mb-5 flex items-center gap-2 text-muted-foreground" aria-live="polite">
+        <Clock className="size-3.5" aria-hidden="true" />
+        {expired ? 'Code expired' : <>Expires in <span className="tabular-nums text-foreground">{formatSeconds(secondsLeft)}</span></>}
+      </p>
       {expired ? (
-        <Alert tone="warning" className="mb-5">
-          This code has expired. Go back to request a new one.
-        </Alert>
+        <FormAlert tone="info">
+          This code has expired. <Link to={backTo} className="font-medium underline underline-offset-2">Request a new one</Link>.
+        </FormAlert>
       ) : null}
-
-      <form onSubmit={onSubmit} className="space-y-5">
-        <Field label="6-digit code">
-          {(id) => (
-            <input
-              id={id}
-              className={`${inputClass} text-center text-2xl font-semibold tracking-[0.5em]`}
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder="••••••"
-              maxLength={6}
-              autoFocus
-              required
-            />
-          )}
-        </Field>
-
-        <Button type="submit" className="w-full" loading={loading} disabled={expired || otp.length !== 6}>
+      <form onSubmit={onSubmit} noValidate className="space-y-5">
+        <FormField
+          label="6-digit code"
+          value={otp}
+          onChange={(e) => {
+            setOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+            setError(null);
+          }}
+          error={error}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          placeholder="••••••"
+          maxLength={6}
+          autoFocus
+          className="h-12 text-center text-2xl tracking-[0.5em]"
+        />
+        <Button type="submit" size="lg" className="w-full" disabled={loading || expired}>
           {loading ? 'Verifying…' : 'Verify and continue'}
         </Button>
       </form>
-    </AuthShell>
+    </AuthLayout>
   );
 }

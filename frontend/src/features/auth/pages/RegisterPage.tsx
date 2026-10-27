@@ -1,87 +1,130 @@
-import React, { useCallback, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { ApiError } from '../../../shared/api/ApiError';
-import { Alert } from '../../../shared/ui/Alert';
-import { Button } from '../../../shared/ui/Button';
-import { TextField } from '../../../shared/ui/Field';
+import { Button } from '@/components/ui/button';
+
 import { requestRegisterOtp } from '../api';
-import { AuthShell } from '../components/AuthShell';
+import { AuthLayout } from '../components/AuthLayout';
+import { FormAlert } from '../components/FormAlert';
+import { type FieldErrors, splitApiError } from '../apiErrors';
+import { FormField } from '../components/FormField';
+import { PasswordField } from '../components/PasswordField';
 import { saveOtpSession } from '../otpStorage';
+
+const FIELDS = ['username', 'email', 'phone_number', 'password'] as const;
+type Field = (typeof FIELDS)[number];
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validate(v: Record<Field, string>): FieldErrors<Field> {
+  const e: FieldErrors<Field> = {};
+  if (!v.username.trim()) e.username = 'Choose a username.';
+  else if (v.username.trim().length > 150) e.username = 'Keep it under 150 characters.';
+  if (!EMAIL.test(v.email.trim())) e.email = 'Enter a valid email address.';
+  if (v.phone_number && v.phone_number.length !== 10) e.phone_number = 'Phone number must be exactly 10 digits.';
+  if (v.password.length < 8) e.password = 'Use at least 8 characters.';
+  return e;
+}
 
 export function RegisterPage() {
   const navigate = useNavigate();
-
-  const [username, setUsername] = useState('');
-  const [phone_number, setPhoneNumber] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [values, setValues] = useState<Record<Field, string>>({ username: '', email: '', phone_number: '', password: '' });
+  const [errors, setErrors] = useState<FieldErrors<Field>>({});
+  const [general, setGeneral] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const onSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      setError(null);
+  const set = (field: Field, value: string) => {
+    setValues((v) => ({ ...v, [field]: value }));
+    setErrors((x) => ({ ...x, [field]: undefined }));
+  };
+  // Re-check a field once the user leaves it, but only if it already has content.
+  const blur = (field: Field) => values[field] && setErrors((x) => ({ ...x, [field]: validate(values)[field] }));
 
-      if (phone_number && phone_number.length !== 10) {
-        setError('Phone number must be exactly 10 digits');
-        return;
-      }
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const next = validate(values);
+    setErrors(next);
+    setGeneral(null);
+    if (Object.keys(next).length) return;
 
-      setLoading(true);
-      try {
-        const res = await requestRegisterOtp({ username, email, password, phone_number: phone_number || null });
-        saveOtpSession('register', email, Date.now() + res.otp_expires_in_seconds * 1000);
-        navigate(`/auth/register/verify?e=${encodeURIComponent(email)}`, { replace: true });
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Something went wrong');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [username, phone_number, email, password, navigate]
-  );
+    setLoading(true);
+    const email = values.email.trim();
+    try {
+      const res = await requestRegisterOtp({
+        username: values.username.trim(),
+        email,
+        password: values.password,
+        phone_number: values.phone_number || null,
+      });
+      saveOtpSession('register', email, Date.now() + res.otp_expires_in_seconds * 1000);
+      navigate(`/auth/register/verify?e=${encodeURIComponent(email)}`);
+    } catch (err) {
+      const split = splitApiError(err, FIELDS);
+      setErrors(split.fields);
+      setGeneral(split.general);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <AuthShell
-      title="Create your account"
-      subtitle="It takes less than a minute. We'll verify your email with a one-time code."
+    <AuthLayout
+      eyebrow="Create your account"
+      title="Start keeping."
+      subtitle="It takes under a minute. We’ll verify your email with a one-time code."
       footer={
         <>
           Already have an account?{' '}
-          <Link className="font-semibold text-primary hover:text-primary-hover" to="/login">
+          <Link to="/login" className="font-medium text-brand hover:underline">
             Sign in
           </Link>
         </>
       }
     >
-      {error ? <Alert className="mb-5">{error}</Alert> : null}
-
-      <form onSubmit={onSubmit} className="space-y-5">
-        <TextField label="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required />
-        <TextField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
-        <TextField
+      {general ? <FormAlert>{general}</FormAlert> : null}
+      <form onSubmit={onSubmit} noValidate className="space-y-5">
+        <FormField
+          label="Username"
+          value={values.username}
+          onChange={(e) => set('username', e.target.value)}
+          onBlur={() => blur('username')}
+          error={errors.username}
+          autoComplete="username"
+          autoFocus
+        />
+        <FormField
+          label="Email"
+          type="email"
+          value={values.email}
+          onChange={(e) => set('email', e.target.value)}
+          onBlur={() => blur('email')}
+          error={errors.email}
+          autoComplete="email"
+        />
+        <FormField
           label="Phone (optional)"
+          value={values.phone_number}
+          onChange={(e) => set('phone_number', e.target.value.replace(/\D/g, '').slice(0, 10))}
+          onBlur={() => blur('phone_number')}
+          error={errors.phone_number}
           hint="10 digits, numbers only."
-          value={phone_number}
-          onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
           inputMode="numeric"
           autoComplete="tel-national"
           maxLength={10}
         />
-        <TextField
+        <PasswordField
           label="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          value={values.password}
+          onChange={(e) => set('password', e.target.value)}
+          onBlur={() => blur('password')}
+          error={errors.password}
+          hint="At least 8 characters. Avoid common or all-number passwords."
           autoComplete="new-password"
-          required
         />
-        <Button type="submit" className="w-full" loading={loading}>
+        <Button type="submit" size="lg" className="w-full" disabled={loading}>
           {loading ? 'Sending code…' : 'Create account'}
         </Button>
       </form>
-    </AuthShell>
+    </AuthLayout>
   );
 }

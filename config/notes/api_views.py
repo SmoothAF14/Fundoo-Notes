@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
@@ -15,6 +16,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 
 from .models import Note, NoteCollaborator
 from .serializers import (
+    visible_email,
     CollaboratorPermissionUpdateSerializer,
     CollaboratorUpsertSerializer,
     InvitationSerializer,
@@ -24,7 +26,7 @@ from .serializers import (
     NotesListResponseSerializer,
     NoteSerializer,
 )
-from .tasks import send_note_invite_email
+from .tasks import send_note_invite_email, send_note_reminder
 
 
 User = get_user_model()
@@ -45,8 +47,34 @@ def _get_collaboration(note: Note, user) -> NoteCollaborator | None:
 def _ensure_can_view(note: Note, user) -> None:
     if note.created_by_id == getattr(user, 'id', None):
         return
-    if _get_collaboration(note, user) is None:
+    # A trashed note is private to its owner until it is restored.
+    if note.trashed or _get_collaboration(note, user) is None:
         raise PermissionError('Not permitted')
+
+
+def _save_note(serializer, data, **extra):
+    """Save, and when the reminder changed, reset its sent flag and schedule the email for that time."""
+    if 'reminder_at' in data:
+        extra['reminder_sent_at'] = None
+    note = serializer.save(**extra)
+    if 'reminder_at' in data and note.reminder_at and note.reminder_at > timezone.now():
+        when = note.reminder_at
+        transaction.on_commit(lambda: send_note_reminder.apply_async(args=[str(note.id), when.isoformat()], eta=when))
+    return note
+
+
+# Fields an edit collaborator may change; labels, pin, colour, archive, reminder and trash are the owner's.
+COLLABORATOR_FIELDS = {'title', 'content'}
+
+
+def _check_trash_rules(note: Note, user, data) -> None:
+    """Owner-only settings stay owner-only, and a trashed note can't be edited until restored."""
+    from rest_framework.exceptions import PermissionDenied, ValidationError
+
+    if note.created_by_id != getattr(user, 'id', None) and set(data.keys()) - COLLABORATOR_FIELDS:
+        raise PermissionDenied('Only the owner can change labels, colour, pin, archive, reminders or trash')
+    if note.trashed and set(data.keys()) - {'trashed'}:
+        raise ValidationError({'detail': 'Restore this note from the trash before editing it.'})
 
 
 def _ensure_can_edit(note: Note, user) -> None:
@@ -70,6 +98,7 @@ class NotesAPIView(APIView):
                 | Q(
                     collaborations__user=user,
                     collaborations__status=NoteCollaborator.Status.ACCEPTED,
+                    trashed_at__isnull=True,
                 )
             )
             .distinct()
@@ -107,7 +136,7 @@ class NotesAPIView(APIView):
     def post(self, request):
         serializer = NoteSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
-        serializer.save(created_by=request.user, updated_by=request.user)
+        _save_note(serializer, request.data, created_by=request.user, updated_by=request.user)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -151,9 +180,10 @@ class NoteDetailAPIView(APIView):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied('You do not have permission to edit this note')
+        _check_trash_rules(note, request.user, request.data)
         serializer = NoteSerializer(note, data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
-        serializer.save(created_by=note.created_by, updated_by=request.user)
+        _save_note(serializer, request.data, created_by=note.created_by, updated_by=request.user)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(request=NoteSerializer, responses={200: NoteSerializer})
@@ -165,6 +195,7 @@ class NoteDetailAPIView(APIView):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied('You do not have permission to edit this note')
+        _check_trash_rules(note, request.user, request.data)
         serializer = NoteSerializer(
             note,
             data=request.data,
@@ -172,7 +203,7 @@ class NoteDetailAPIView(APIView):
             context={'request': request},
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save(created_by=note.created_by, updated_by=request.user)
+        _save_note(serializer, request.data, created_by=note.created_by, updated_by=request.user)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(request=None, responses={204: OpenApiResponse(description='Deleted')})
@@ -208,14 +239,15 @@ class NoteCollaboratorsAPIView(APIView):
             .select_related('user', 'invited_by')
             .order_by('-created_at')
         )
+        viewer = request.user
         return Response(
             {
                 'owner': {
                     'id': str(getattr(note.created_by, 'id', note.created_by_id)),
                     'username': note.created_by.username,
-                    'email': (note.created_by.email or ''),
+                    'email': visible_email(note.created_by, viewer, note),
                 },
-                'collaborators': NoteCollaboratorSerializer(qs, many=True).data,
+                'collaborators': NoteCollaboratorSerializer(qs, many=True, context={'viewer': viewer, 'note': note}).data,
             },
             status=status.HTTP_200_OK,
         )

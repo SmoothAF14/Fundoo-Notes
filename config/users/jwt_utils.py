@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 from datetime import timedelta
 
 import jwt
@@ -15,6 +17,12 @@ def _jwt_lifetime_seconds() -> int:
     return int(getattr(settings, 'JWT_ACCESS_TOKEN_LIFETIME_SECONDS', 7 * 24 * 60 * 60))
 
 
+def password_fingerprint(user) -> str:
+    """Changes whenever the password changes, so tokens issued before a reset stop working."""
+    key = settings.SECRET_KEY.encode()
+    return hmac.new(key, (user.password or '').encode(), hashlib.sha256).hexdigest()[:16]
+
+
 def create_access_token(user) -> str:
     now = timezone.now()
     expires_at = now + timedelta(seconds=_jwt_lifetime_seconds())
@@ -26,6 +34,7 @@ def create_access_token(user) -> str:
         'email': (user.email or ''),
         'phone_number': getattr(user, 'phone_number', None),
         'is_verified': bool(getattr(user, 'is_verified', False)),
+        'pwd': password_fingerprint(user),
         'iat': int(now.timestamp()),
         'exp': int(expires_at.timestamp()),
     }

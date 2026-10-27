@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 
 # Note Model
@@ -32,11 +33,38 @@ class Note(models.Model):
         blank=True,
     )
 
+    class Color(models.TextChoices):
+        DEFAULT = '', 'Default'
+        CLAY = 'clay', 'Clay'
+        SAND = 'sand', 'Sand'
+        MOSS = 'moss', 'Moss'
+        SAGE = 'sage', 'Sage'
+        TIDE = 'tide', 'Tide'
+        DUSK = 'dusk', 'Dusk'
+        PLUM = 'plum', 'Plum'
+        ROSE = 'rose', 'Rose'
+
     archived = models.BooleanField(default=False)
+    pinned = models.BooleanField(default=False)
+    color = models.CharField(max_length=16, choices=Color.choices, default=Color.DEFAULT, blank=True)
+    reminder_at = models.DateTimeField(null=True, blank=True)
+    reminder_sent_at = models.DateTimeField(null=True, blank=True)
+    trashed_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def trashed(self) -> bool:
+        return self.trashed_at is not None
+
+    @trashed.setter
+    def trashed(self, value: bool) -> None:
+        if not value:
+            self.trashed_at = None
+        elif self.trashed_at is None:
+            self.trashed_at = timezone.now()
 
     def __str__(self):
         return self.title

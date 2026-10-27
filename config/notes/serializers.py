@@ -9,6 +9,14 @@ from .models import Note, NoteCollaborator
 User = get_user_model()
 
 
+def visible_email(subject, viewer, note) -> str:
+    """Only the note's owner sees collaborators' emails; everyone sees their own."""
+    viewer_id = getattr(viewer, 'id', None)
+    if viewer_id is not None and (viewer_id == note.created_by_id or viewer_id == getattr(subject, 'id', None)):
+        return subject.email or ''
+    return ''
+
+
 class UserSummarySerializer(serializers.Serializer):
     id = serializers.CharField()
     username = serializers.CharField()
@@ -23,13 +31,17 @@ class NoteCollaboratorSerializer(serializers.ModelSerializer):
         model = NoteCollaborator
         fields = ['id', 'user', 'permission', 'status', 'invited_by', 'created_at', 'responded_at']
 
+    def _person(self, obj: NoteCollaborator, u):
+        viewer = self.context.get('viewer')
+        # Without a viewer (e.g. the owner's own invite response) show emails as before.
+        email = visible_email(u, viewer, self.context.get('note') or obj.note) if viewer is not None else (u.email or '')
+        return {'id': str(getattr(u, 'id', u.pk)), 'username': u.username, 'email': email}
+
     def get_user(self, obj: NoteCollaborator):
-        u = obj.user
-        return {'id': str(getattr(u, 'id', u.pk)), 'username': u.username, 'email': (u.email or '')}
+        return self._person(obj, obj.user)
 
     def get_invited_by(self, obj: NoteCollaborator):
-        u = obj.invited_by
-        return {'id': str(getattr(u, 'id', u.pk)), 'username': u.username, 'email': (u.email or '')}
+        return self._person(obj, obj.invited_by)
 
 
 class CollaboratorUpsertSerializer(serializers.Serializer):
@@ -69,6 +81,7 @@ class NoteSerializer(serializers.ModelSerializer):
         required=False,
         help_text='List of label IDs (label_id) that belong to the authenticated user.',
     )
+    trashed = serializers.BooleanField(required=False, help_text='Move to trash (true) or restore (false). Owner only.')
 
     class Meta:
         model = Note
@@ -78,13 +91,18 @@ class NoteSerializer(serializers.ModelSerializer):
             'content',
             'labels',
             'archived',
+            'pinned',
+            'color',
+            'reminder_at',
+            'trashed',
             'created_at',
+            'updated_at',
             'created_by',
             'owner_username',
             'access',
             'shared_with',
         ]
-        read_only_fields = ['id', 'created_at', 'created_by']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']
 
     def get_access(self, obj: Note) -> str:
         request = self.context.get('request')
@@ -170,14 +188,23 @@ class NoteListItemSerializer(serializers.ModelSerializer):
             'owner',
             'title',
             'content',
+            'labels',
             'label_names',
             'collaborators',
             'access',
+            'archived',
+            'pinned',
+            'color',
+            'reminder_at',
+            'trashed',
+            'created_at',
+            'updated_at',
         ]
 
     def get_owner(self, obj: Note):
         u = obj.created_by
-        return {'name': u.username, 'email': (u.email or '')}
+        viewer = getattr(self.context.get('request'), 'user', None)
+        return {'name': u.username, 'email': visible_email(u, viewer, obj)}
 
     def get_label_names(self, obj: Note) -> str:
         # Join into a single string (matches requested sample shape).
@@ -195,10 +222,11 @@ class NoteListItemSerializer(serializers.ModelSerializer):
                 .select_related('user')
                 .only('permission', 'user__username', 'user__email')
             )
+        viewer = getattr(self.context.get('request'), 'user', None)
         return [
             {
                 'name': c.user.username,
-                'email': (c.user.email or ''),
+                'email': visible_email(c.user, viewer, obj),
                 'permission': c.permission,
             }
             for c in accepted

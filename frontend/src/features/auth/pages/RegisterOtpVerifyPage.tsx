@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { verifyRegisterOtp } from '../api';
@@ -17,7 +17,7 @@ export function RegisterOtpVerifyPage() {
       verify={verify}
       subtitle={
         <>
-          We sent a verification code to <span className="font-semibold text-ink">{email}</span>.
+          We sent a verification code to <span className="font-medium text-foreground">{email}</span>.
         </>
       }
     />

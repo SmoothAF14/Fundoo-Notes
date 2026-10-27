@@ -1,33 +1,29 @@
-import type { AuthTokenResponse, AuthUser } from '../types';
+import type { AuthUser } from '@/shared/types';
 
-const TOKEN_KEY = 'fundoo.auth.token';
+// Only the (non-secret) profile is kept here; the session itself is an httpOnly cookie that scripts can't read.
 const USER_KEY = 'fundoo.auth.user';
+const LEGACY_TOKEN_KEY = 'fundoo.auth.token';
 
-export function readToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function writeAuth(auth: AuthTokenResponse): void {
-  localStorage.setItem(TOKEN_KEY, auth.token);
-  localStorage.setItem(USER_KEY, JSON.stringify({
-    id: auth.id,
-    username: auth.username,
-    email: auth.email,
-    phone_number: auth.phone_number ?? null,
-  } satisfies AuthUser));
-}
-
-export function readUser(): AuthUser | null {
-  const raw = localStorage.getItem(USER_KEY);
-  if (!raw) return null;
+function safe<T>(fn: () => T, fallback: T): T {
   try {
-    return JSON.parse(raw) as AuthUser;
+    return fn();
   } catch {
-    return null;
+    return fallback;
   }
 }
 
-export function clearAuth(): void {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+export function readUser(): AuthUser | null {
+  return safe(() => {
+    localStorage.removeItem(LEGACY_TOKEN_KEY); // tokens from before the cookie switch
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? (JSON.parse(raw) as AuthUser) : null;
+  }, null);
+}
+
+export function writeUser(user: AuthUser): void {
+  safe(() => localStorage.setItem(USER_KEY, JSON.stringify(user)), undefined);
+}
+
+export function clearUser(): void {
+  safe(() => localStorage.removeItem(USER_KEY), undefined);
 }

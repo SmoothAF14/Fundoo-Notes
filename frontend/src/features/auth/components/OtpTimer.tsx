@@ -2,29 +2,22 @@ import { useEffect, useState } from 'react';
 
 export function formatSeconds(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function secondsUntil(expiresAtMs: number | null): number {
-  return expiresAtMs ? Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 1000)) : 0;
-}
-
-/** Seconds left until `expiresAtMs`, re-rendering every second until it hits zero. */
+/** Seconds left until `expiresAtMs` (0 when unset or expired), ticking once a second. */
 export function useCountdown(expiresAtMs: number | null): number {
-  const [seconds, setSeconds] = useState(() => secondsUntil(expiresAtMs));
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    setSeconds(secondsUntil(expiresAtMs));
     if (!expiresAtMs) return;
     const t = window.setInterval(() => {
-      const next = secondsUntil(expiresAtMs);
-      setSeconds(next);
-      if (next === 0) window.clearInterval(t);
+      const current = Date.now();
+      setNow(current);
+      if (current >= expiresAtMs) window.clearInterval(t);
     }, 1000);
     return () => window.clearInterval(t);
   }, [expiresAtMs]);
 
-  return seconds;
+  return expiresAtMs ? Math.max(0, Math.ceil((expiresAtMs - now) / 1000)) : 0;
 }

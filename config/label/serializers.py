@@ -15,10 +15,18 @@ class LabelSerializer(serializers.ModelSerializer):
 
 
 class LabelCreateSerializer(serializers.Serializer):
+    """Used for create and rename. Pass `user` (and `instance` when renaming) in context."""
+
     title = serializers.CharField(max_length=100)
 
     def validate_title(self, value: str) -> str:
         value = (value or '').strip()
         if not value:
             raise serializers.ValidationError('Title cannot be empty.')
+        # Notes are filtered by label name, so names must be unique per user.
+        existing = Label.objects.filter(created_by=self.context.get('user'), title__iexact=value)
+        if self.context.get('instance') is not None:
+            existing = existing.exclude(pk=self.context['instance'].pk)
+        if existing.exists():
+            raise serializers.ValidationError('A label with this name already exists.')
         return value
